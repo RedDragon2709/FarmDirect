@@ -1,0 +1,9 @@
+[
+  "commodity_encoded",
+  "state_encoded",
+  "district_encoded",
+  "month",
+  "season_encoded",
+  "price_range",
+  "min_price"
+]
