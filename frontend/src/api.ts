@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const BASE_URL = "http://192.168.29.5:8000";
+const BASE_URL = "http://10.212.77.108:8000";
 
 async function getToken(): Promise<string | null> {
   return AsyncStorage.getItem("token");
@@ -106,7 +106,7 @@ export const api = {
 };
 
 // ── ML Service ──────────────────────────────────────────────────────────────
-const ML_BASE_URL = "http://192.168.29.5:8001";
+const ML_BASE_URL = "http://10.212.77.108:8001";
 
 async function mlRequest(
   method: string,
