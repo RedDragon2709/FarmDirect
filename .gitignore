@@ -75,6 +75,11 @@ credentials/
 *.bak
 *.swp
 
+# Archives
+*.zip
+*.tar.gz
+*.7z
+
 # OS
 Thumbs.db
 .DS_Store

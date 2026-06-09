@@ -63,9 +63,20 @@ class OrderCreate(BaseModel):
     product_id: str
     quantity: int
     delivery_address: str
+    payment_method: Optional[str] = "COD"  # "UPI" | "CARD" | "COD"
+    payment_status: Optional[str] = "pending"  # "paid" | "pending"
+    transaction_id: Optional[str] = None
 
 class OrderStatusUpdate(BaseModel):
-    status: str  # "accepted" | "dispatched" | "delivered" | "cancelled"
+    status: str  # "placed" | "confirmed" | "packed" | "dispatched" | "delivered" | "cancelled"
+
+class ProfileUpdate(BaseModel):
+    farm_name: Optional[str] = None
+    farm_location: Optional[str] = None
+    farm_type: Optional[str] = None
+    farm_size: Optional[str] = None
+    addresses: Optional[List[str]] = None
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -158,6 +169,22 @@ async def me(current_user=Depends(get_current_user)):
     user_out = serialize(current_user)
     user_out.pop("password_hash", None)
     return user_out
+
+
+@app.put("/api/auth/profile")
+async def update_profile(body: ProfileUpdate, current_user=Depends(get_current_user)):
+    update_data = {k: v for k, v in body.dict().items() if v is not None}
+    if not update_data:
+        user_out = serialize(current_user)
+        user_out.pop("password_hash", None)
+        return user_out
+        
+    await db.users.update_one({"_id": current_user["_id"]}, {"$set": update_data})
+    updated = await db.users.find_one({"_id": current_user["_id"]})
+    user_out = serialize(updated)
+    user_out.pop("password_hash", None)
+    return user_out
+
 
 
 @app.post("/api/auth/logout")
@@ -263,8 +290,10 @@ async def create_order(body: OrderCreate, current_user=Depends(get_current_user)
         "price": product["price"],
         "total": total,
         "delivery_address": body.delivery_address,
-        "status": "accepted",
-        "payment_method": "COD",
+        "status": "placed",
+        "payment_method": body.payment_method,
+        "payment_status": body.payment_status,
+        "transaction_id": body.transaction_id,
         "created_at": datetime.utcnow(),
     }
     await db.orders.insert_one(order)
@@ -293,7 +322,31 @@ async def update_order_status(order_id: str, body: OrderStatusUpdate, current_us
         raise HTTPException(status_code=404, detail="Order not found")
     if order["farmer_id"] != current_user["_id"]:
         raise HTTPException(status_code=403, detail="Not authorized")
-    await db.orders.update_one({"_id": ObjectId(order_id)}, {"$set": {"status": body.status}})
+        
+    current_status = order.get("status", "placed")
+    new_status = body.status
+    
+    # State transitions: placed -> confirmed -> packed -> dispatched -> delivered
+    valid_transitions = {
+        "placed": ["confirmed", "cancelled"],
+        "confirmed": ["packed", "cancelled"],
+        "packed": ["dispatched"],
+        "dispatched": ["delivered"],
+        "delivered": [],
+        "cancelled": []
+    }
+    
+    if new_status not in valid_transitions.get(current_status, []):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid transition from {current_status} to {new_status}"
+        )
+        
+    update_data = {"status": new_status}
+    if new_status == "delivered" and order.get("payment_method") == "COD":
+        update_data["payment_status"] = "paid"
+        
+    await db.orders.update_one({"_id": ObjectId(order_id)}, {"$set": update_data})
     updated = await db.orders.find_one({"_id": ObjectId(order_id)})
     return serialize(updated)
 

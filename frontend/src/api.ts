@@ -1,6 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-const BASE_URL = "http://10.212.77.108:8000";
+const BASE_URL = "http://10.39.138.56:8000";
 
 async function getToken(): Promise<string | null> {
   return AsyncStorage.getItem("token");
@@ -48,6 +48,14 @@ export const api = {
 
   me: () => request("GET", "/api/auth/me"),
 
+  updateProfile: (data: {
+    farm_name?: string;
+    farm_location?: string;
+    farm_type?: string;
+    farm_size?: string;
+    addresses?: string[];
+  }) => request("PUT", "/api/auth/profile", data),
+
   logout: () => request("POST", "/api/auth/logout"),
 
   // ── Products ───────────────────────────────────────────────────────────────
@@ -84,6 +92,9 @@ export const api = {
     product_id: string;
     quantity: number;
     delivery_address: string;
+    payment_method?: string;
+    payment_status?: string;
+    transaction_id?: string;
   }) => request("POST", "/api/orders", data),
 
   farmerOrders: () => request("GET", "/api/orders/farmer"),
@@ -106,7 +117,7 @@ export const api = {
 };
 
 // ── ML Service ──────────────────────────────────────────────────────────────
-const ML_BASE_URL = "http://10.212.77.108:8001";
+const ML_BASE_URL = "http://10.39.138.56:8001";
 
 async function mlRequest(
   method: string,

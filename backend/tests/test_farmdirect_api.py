@@ -5,7 +5,7 @@ Run: pytest backend/tests/test_farmdirect_api.py -v
 import pytest
 import httpx
 
-BASE_URL = "https://farm-to-table-361.preview.emergentagent.com"
+BASE_URL = "http://localhost:8000"
 
 # ── Shared state across tests ─────────────────────────────────────────────────
 state = {}
@@ -13,6 +13,43 @@ state = {}
 
 def h(token):
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture(scope="session", autouse=True)
+def setup_test_users():
+    # Try logging in as farmer1
+    try:
+        r = httpx.post(f"{BASE_URL}/api/auth/login", json={
+            "identifier": "farmer1@test.com", "password": "farmer123"
+        })
+        if r.status_code != 200:
+            # Register farmer1
+            httpx.post(f"{BASE_URL}/api/auth/register", json={
+                "name": "Farmer One",
+                "email": "farmer1@test.com",
+                "mobile": "9876543210",
+                "password": "farmer123",
+                "user_type": "farmer"
+            })
+    except Exception:
+        pass
+
+    # Try logging in as consumer1
+    try:
+        r = httpx.post(f"{BASE_URL}/api/auth/login", json={
+            "identifier": "consumer1@test.com", "password": "consumer123"
+        })
+        if r.status_code != 200:
+            # Register consumer1
+            httpx.post(f"{BASE_URL}/api/auth/register", json={
+                "name": "Consumer One",
+                "email": "consumer1@test.com",
+                "mobile": "9876543211",
+                "password": "consumer123",
+                "user_type": "consumer"
+            })
+    except Exception:
+        pass
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -225,7 +262,7 @@ class TestOrders:
                              "quantity": 2, "delivery_address": "123 Main St"})
         assert r.status_code == 201
         data = r.json()
-        assert data["status"] == "accepted"
+        assert data["status"] == "placed"
         assert data["total"] == 120  # 2 * 60
         state["order_id"] = data["id"]
 
@@ -253,11 +290,26 @@ class TestOrders:
         assert state["order_id"] in ids
 
     def test_update_order_status_by_farmer(self):
-        r = httpx.patch(f"{BASE_URL}/api/orders/{state['order_id']}/status",
-                        headers=h(state["farmer_token"]),
-                        json={"status": "dispatched"})
-        assert r.status_code == 200
-        assert r.json()["status"] == "dispatched"
+        # 1. placed -> confirmed
+        r1 = httpx.patch(f"{BASE_URL}/api/orders/{state['order_id']}/status",
+                         headers=h(state["farmer_token"]),
+                         json={"status": "confirmed"})
+        assert r1.status_code == 200
+        assert r1.json()["status"] == "confirmed"
+
+        # 2. confirmed -> packed
+        r2 = httpx.patch(f"{BASE_URL}/api/orders/{state['order_id']}/status",
+                         headers=h(state["farmer_token"]),
+                         json={"status": "packed"})
+        assert r2.status_code == 200
+        assert r2.json()["status"] == "packed"
+
+        # 3. packed -> dispatched
+        r3 = httpx.patch(f"{BASE_URL}/api/orders/{state['order_id']}/status",
+                         headers=h(state["farmer_token"]),
+                         json={"status": "dispatched"})
+        assert r3.status_code == 200
+        assert r3.json()["status"] == "dispatched"
 
     def test_update_order_status_unauthorized(self):
         r = httpx.patch(f"{BASE_URL}/api/orders/{state['order_id']}/status",
@@ -297,3 +349,37 @@ class TestEarnings:
         r = httpx.get(f"{BASE_URL}/api/earnings/summary", headers=h(state["farmer_token"]))
         data = r.json()
         assert data["total"] >= 120  # at least one order placed
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PROFILE
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class TestProfile:
+    def test_update_profile_unauthenticated(self):
+        r = httpx.put(f"{BASE_URL}/api/auth/profile", json={"farm_name": "Test Farm"})
+        assert r.status_code in (401, 403)
+
+    def test_update_profile_farmer(self):
+        r = httpx.put(f"{BASE_URL}/api/auth/profile", headers=h(state["farmer_token"]), json={
+            "farm_name": "Dynamic Farm",
+            "farm_location": "Dynamic Valley",
+            "farm_type": "organic",
+            "farm_size": "5 acres"
+        })
+        assert r.status_code == 200
+        data = r.json()
+        assert data["farm_name"] == "Dynamic Farm"
+        assert data["farm_location"] == "Dynamic Valley"
+        assert data["farm_type"] == "organic"
+        assert data["farm_size"] == "5 acres"
+
+    def test_update_profile_consumer(self):
+        r = httpx.put(f"{BASE_URL}/api/auth/profile", headers=h(state["consumer_token"]), json={
+            "addresses": ["123 Green St", "456 Harvest Rd"]
+        })
+        assert r.status_code == 200
+        data = r.json()
+        assert "addresses" in data
+        assert "123 Green St" in data["addresses"]
+        assert "456 Harvest Rd" in data["addresses"]

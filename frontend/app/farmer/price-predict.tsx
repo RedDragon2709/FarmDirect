@@ -1,693 +1,394 @@
 import React, { useState } from "react";
 import {
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  StyleSheet,
-  Alert,
-  ScrollView,
-  ActivityIndicator,
-  Animated,
+  View, Text, TextInput, TouchableOpacity, StyleSheet,
+  Alert, ScrollView, ActivityIndicator, Dimensions, FlatList,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "../../src/api";
 import { theme } from "../../src/theme";
 
-// ── Data from ML preprocessing ──────────────────────────────────────────────
+const { width } = Dimensions.get("window");
 
-const COMMODITIES = [
-  "Tomato", "Onion", "Potato", "Brinjal", "Cabbage", "Cauliflower",
-  "Carrot", "Beans", "Green Chilli", "Bhindi", "Pumpkin", "Bottle Gourd",
-  "Bitter Gourd", "Cucumber", "Peas Wet", "Garlic", "Ginger",
-  "Banana", "Apple", "Mango", "Orange", "Papaya", "Pomegranate",
-  "Guava", "Water Melon", "Pineapple", "Mosambi", "Lemon", "Sapota", "Grapes",
-];
+// Popular quick-selects — just top ones shown as chips, rest typed
+const QUICK_PICKS = ["Tomato", "Onion", "Potato", "Carrot", "Cauliflower", "Cabbage", "Beans", "Brinjal", "Mango", "Banana", "Apple"];
 
 const STATES = [
   "Karnataka", "Maharashtra", "Tamil Nadu", "Uttar Pradesh",
   "Gujarat", "Rajasthan", "Madhya Pradesh", "West Bengal",
   "Andhra Pradesh", "Kerala", "Bihar", "Punjab",
-  "Haryana", "Telangana", "Odisha",
+  "Haryana", "Telangana", "Odisha", "Assam", "Jharkhand", "Chhattisgarh",
 ];
 
 const MONTHS = [
-  { label: "Jan", value: 1 }, { label: "Feb", value: 2 },
-  { label: "Mar", value: 3 }, { label: "Apr", value: 4 },
-  { label: "May", value: 5 }, { label: "Jun", value: 6 },
-  { label: "Jul", value: 7 }, { label: "Aug", value: 8 },
-  { label: "Sep", value: 9 }, { label: "Oct", value: 10 },
-  { label: "Nov", value: 11 }, { label: "Dec", value: 12 },
+  { label: "Jan", value: 1 }, { label: "Feb", value: 2 }, { label: "Mar", value: 3 },
+  { label: "Apr", value: 4 }, { label: "May", value: 5 }, { label: "Jun", value: 6 },
+  { label: "Jul", value: 7 }, { label: "Aug", value: 8 }, { label: "Sep", value: 9 },
+  { label: "Oct", value: 10 }, { label: "Nov", value: 11 }, { label: "Dec", value: 12 },
 ];
 
-// ── Types ────────────────────────────────────────────────────────────────────
-
-interface PredictionResult {
-  commodity: string;
-  state: string;
-  district: string;
-  suggested_min: number;
-  suggested_max: number;
-  suggested_modal: number;
-  confidence: string;
-  used_fallback: boolean;
-  note: string;
-}
-
-// ── Helpers ─────────────────────────────────────────────────────────────────
-
-const getSeasonIcon = (m: number): { name: keyof typeof Ionicons.glyphMap; label: string } => {
-  if ([6, 7, 8, 9, 10].includes(m)) return { name: "rainy-outline", label: "Kharif" };
-  if ([11, 12, 1, 2, 3].includes(m)) return { name: "snow-outline", label: "Rabi" };
-  return { name: "sunny-outline", label: "Zaid" };
+const getSeasonInfo = (m: number) => {
+  if ([6,7,8,9,10].includes(m)) return { emoji: "🌧️", label: "Kharif", color: "#3B82F6" };
+  if ([11,12,1,2,3].includes(m)) return { emoji: "❄️", label: "Rabi", color: "#8B5CF6" };
+  return { emoji: "☀️", label: "Zaid", color: "#F59E0B" };
 };
 
-// ── Screen ───────────────────────────────────────────────────────────────────
+const CONFIDENCE_COLORS = {
+  high:   { text: theme.colors.success, bg: theme.colors.successSoft },
+  medium: { text: "#D97706", bg: "#FFFBEB" },
+  low:    { text: theme.colors.error,   bg: theme.colors.errorSoft },
+};
+
+interface PredictionResult {
+  commodity: string; state: string; district: string;
+  suggested_min: number; suggested_max: number; suggested_modal: number;
+  confidence: string; used_fallback: boolean; note: string;
+}
 
 export default function PricePredictScreen() {
   const [commodity, setCommodity] = useState("");
+  const [commodityInput, setCommodityInput] = useState("");
   const [state, setState] = useState("");
   const [district, setDistrict] = useState("");
   const [month, setMonth] = useState(new Date().getMonth() + 1);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<PredictionResult | null>(null);
-  const [searchCommodity, setSearchCommodity] = useState("");
-  const [searchState, setSearchState] = useState("");
+  const [showStateModal, setShowStateModal] = useState(false);
+  const [stateSearch, setStateSearch] = useState("");
+  const [focusedInput, setFocusedInput] = useState<string | null>(null);
 
-  const filteredCommodities = COMMODITIES.filter((c) =>
-    c.toLowerCase().includes(searchCommodity.toLowerCase())
-  );
-
-  const filteredStates = STATES.filter((s) =>
-    s.toLowerCase().includes(searchState.toLowerCase())
-  );
+  const filteredStates = STATES.filter((s) => s.toLowerCase().includes(stateSearch.toLowerCase()));
+  const season = getSeasonInfo(month);
 
   const handlePredict = async () => {
-    if (!commodity) {
-      Alert.alert("Missing Field", "Please select a commodity");
-      return;
-    }
-    if (!state) {
-      Alert.alert("Missing Field", "Please select a state");
-      return;
-    }
-    if (!district.trim()) {
-      Alert.alert("Missing Field", "Please enter a district");
-      return;
-    }
-
+    const finalCommodity = commodity || commodityInput.trim();
+    if (!finalCommodity) { Alert.alert("Enter Commodity", "Type or select a crop/vegetable name."); return; }
+    if (!state) { Alert.alert("Select State", "Please choose a state."); return; }
+    if (!district.trim()) { Alert.alert("Enter District", "Please enter the district name."); return; }
     setLoading(true);
     setResult(null);
-
     try {
-      const data: PredictionResult = await api.predictPrice({
-        commodity,
-        state,
-        district: district.trim(),
-        month,
-      });
+      const data: PredictionResult = await api.predictPrice({ commodity: finalCommodity, state, district: district.trim(), month });
       setResult(data);
     } catch (e: any) {
-      Alert.alert("Prediction Failed", e.message || "Something went wrong");
-    } finally {
-      setLoading(false);
-    }
+      Alert.alert("Prediction Failed", e.message || "ML service unavailable. Please try again.");
+    } finally { setLoading(false); }
   };
 
-  const getConfidenceColor = (confidence: string) => {
-    switch (confidence) {
-      case "high": return theme.colors.success;
-      case "medium": return theme.colors.warning;
-      case "low": return theme.colors.error;
-      default: return theme.colors.textMuted;
-    }
-  };
-
-  const season = getSeasonIcon(month);
+  const confidenceColors = result
+    ? (CONFIDENCE_COLORS[result.confidence as keyof typeof CONFIDENCE_COLORS] || CONFIDENCE_COLORS.low)
+    : null;
 
   return (
-    <ScrollView style={styles.container} keyboardShouldPersistTaps="handled">
-      {/* Header Card */}
-      <View style={styles.headerCard}>
-        <Ionicons name="bar-chart" size={40} color="#fff" style={{ marginBottom: 8 }} />
-        <Text style={styles.headerTitle}>AI Price Predictor</Text>
-        <Text style={styles.headerSubtitle}>
-          Get ML-powered price suggestions based on mandi data across India
-        </Text>
-      </View>
-
-      {/* Commodity Selection */}
-      <Text style={styles.sectionTitle}>Select Commodity</Text>
-      <View style={styles.searchInputWrapper}>
-        <Ionicons name="search-outline" size={16} color={theme.colors.textMuted} style={{ marginRight: 6 }} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search commodities..."
-          placeholderTextColor={theme.colors.textMuted}
-          value={searchCommodity}
-          onChangeText={setSearchCommodity}
-        />
-      </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.chipScroll}
-      >
-        {filteredCommodities.map((c) => (
-          <TouchableOpacity
-            key={c}
-            style={[styles.chip, commodity === c && styles.chipActive]}
-            onPress={() => setCommodity(c)}
-          >
-            <Text
-              style={[
-                styles.chipText,
-                commodity === c && styles.chipTextActive,
-              ]}
-            >
-              {c}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      {/* State Selection */}
-      <Text style={styles.sectionTitle}>Select State</Text>
-      <View style={styles.searchInputWrapper}>
-        <Ionicons name="search-outline" size={16} color={theme.colors.textMuted} style={{ marginRight: 6 }} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search states..."
-          placeholderTextColor={theme.colors.textMuted}
-          value={searchState}
-          onChangeText={setSearchState}
-        />
-      </View>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.chipScroll}
-      >
-        {filteredStates.map((s) => (
-          <TouchableOpacity
-            key={s}
-            style={[styles.chip, state === s && styles.chipActive]}
-            onPress={() => setState(s)}
-          >
-            <Text
-              style={[styles.chipText, state === s && styles.chipTextActive]}
-            >
-              {s}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      {/* District Input */}
-      <Text style={styles.label}>District Name *</Text>
-      <TextInput
-        style={styles.input}
-        value={district}
-        onChangeText={setDistrict}
-        placeholder="e.g. Bangalore, Pune, Lucknow"
-        placeholderTextColor={theme.colors.textMuted}
-      />
-
-      {/* Month Selection */}
-      <View style={styles.monthTitleRow}>
-        <Text style={styles.sectionTitle}>Select Month</Text>
-        <View style={styles.seasonBadge}>
-          <Ionicons name={season.name} size={14} color={theme.colors.textMuted} />
-          <Text style={styles.seasonBadgeText}> {season.label}</Text>
-        </View>
-      </View>
-      <View style={styles.monthGrid}>
-        {MONTHS.map((m) => (
-          <TouchableOpacity
-            key={m.value}
-            style={[
-              styles.monthChip,
-              month === m.value && styles.monthChipActive,
-            ]}
-            onPress={() => setMonth(m.value)}
-          >
-            <Text
-              style={[
-                styles.monthChipText,
-                month === m.value && styles.monthChipTextActive,
-              ]}
-            >
-              {m.label}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
-
-      {/* Predict Button */}
-      <TouchableOpacity
-        style={[styles.btn, loading && { opacity: 0.7 }]}
-        onPress={handlePredict}
-        disabled={loading}
-        activeOpacity={0.85}
-      >
-        {loading ? (
-          <View style={styles.btnLoading}>
-            <ActivityIndicator size="small" color="#fff" />
-            <Text style={styles.btnText}>  Analyzing...</Text>
+    <SafeAreaView style={{ flex: 1, backgroundColor: theme.colors.background }} edges={["top"]}>
+      <View style={{ flex: 1 }}>
+        <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          {/* Hero */}
+          <View style={styles.header}>
+            <View style={styles.headerOrb1} />
+            <View style={styles.headerOrb2} />
+            <View style={styles.headerIcon}><Text style={{ fontSize: 30 }}>🤖</Text></View>
+            <Text style={styles.headerTitle}>AI Price Predictor</Text>
+            <Text style={styles.headerSub}>ML-powered mandi price suggestions across India</Text>
           </View>
-        ) : (
-          <View style={styles.btnLoading}>
-            <Ionicons name="sparkles" size={18} color="#fff" />
-            <Text style={styles.btnText}>  Get Price Prediction</Text>
+
+          <View style={styles.body}>
+            {/* Commodity — searchable text field */}
+            <Text style={styles.sectionLabel}>Crop / Vegetable Name</Text>
+            <View style={[styles.inputWrap, focusedInput === "commodity" && styles.inputFocused]}>
+              <Ionicons name="search-outline" size={18} color={focusedInput === "commodity" ? theme.colors.primary : theme.colors.textMuted} style={{ marginRight: 10 }} />
+              <TextInput
+                style={styles.input}
+                value={commodityInput}
+                onChangeText={(t) => { setCommodityInput(t); setCommodity(""); }}
+                placeholder="e.g. Tomato, Wheat, Mango…"
+                placeholderTextColor={theme.colors.textMuted}
+                onFocus={() => setFocusedInput("commodity")}
+                onBlur={() => setFocusedInput(null)}
+                autoCapitalize="words"
+              />
+              {(commodityInput || commodity) && (
+                <TouchableOpacity onPress={() => { setCommodity(""); setCommodityInput(""); }}>
+                  <Ionicons name="close-circle" size={18} color={theme.colors.textMuted} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Quick pick chips */}
+            <Text style={styles.quickLabel}>Quick pick:</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 6 }}>
+              {QUICK_PICKS.map((q) => {
+                const active = commodity === q;
+                return (
+                  <TouchableOpacity
+                    key={q}
+                    style={[styles.quickChip, active && styles.quickChipActive]}
+                    onPress={() => { setCommodity(active ? "" : q); setCommodityInput(active ? "" : q); }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.quickChipText, active && { color: "#fff" }]}>{q}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            {/* State */}
+            <Text style={styles.sectionLabel}>State</Text>
+            <TouchableOpacity
+              style={[styles.inputWrap, { justifyContent: "space-between" }]}
+              onPress={() => setShowStateModal(true)}
+              activeOpacity={0.85}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <Ionicons name="location-outline" size={18} color={state ? theme.colors.primary : theme.colors.textMuted} style={{ marginRight: 10 }} />
+                <Text style={[styles.input, !state && { color: theme.colors.textMuted }]}>
+                  {state || "Tap to choose state…"}
+                </Text>
+              </View>
+              <Ionicons name="chevron-down" size={16} color={theme.colors.textMuted} />
+            </TouchableOpacity>
+
+            {/* District */}
+            <Text style={styles.sectionLabel}>District</Text>
+            <View style={[styles.inputWrap, focusedInput === "district" && styles.inputFocused]}>
+              <Ionicons name="business-outline" size={18} color={focusedInput === "district" ? theme.colors.primary : theme.colors.textMuted} style={{ marginRight: 10 }} />
+              <TextInput
+                style={styles.input}
+                value={district}
+                onChangeText={setDistrict}
+                placeholder="e.g. Bangalore, Pune, Lucknow"
+                placeholderTextColor={theme.colors.textMuted}
+                onFocus={() => setFocusedInput("district")}
+                onBlur={() => setFocusedInput(null)}
+              />
+            </View>
+
+            {/* Month */}
+            <View style={styles.monthHeadRow}>
+              <Text style={styles.sectionLabel}>Month</Text>
+              <View style={[styles.seasonBadge, { backgroundColor: season.color + "18" }]}>
+                <Text style={{ fontSize: 12 }}>{season.emoji}</Text>
+                <Text style={[styles.seasonText, { color: season.color }]}>  {season.label}</Text>
+              </View>
+            </View>
+            <View style={styles.monthGrid}>
+              {MONTHS.map((m) => {
+                const sel = month === m.value;
+                return (
+                  <TouchableOpacity
+                    key={m.value}
+                    style={[styles.monthChip, sel && { backgroundColor: theme.colors.secondary, borderColor: theme.colors.secondary }]}
+                    onPress={() => setMonth(m.value)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.monthChipText, sel && { color: "#fff" }]}>{m.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Predict button */}
+            <TouchableOpacity style={[styles.predictBtn, loading && { opacity: 0.75 }]} onPress={handlePredict} disabled={loading} activeOpacity={0.88}>
+              {loading
+                ? <><ActivityIndicator size="small" color="#fff" /><Text style={[styles.predictBtnText, { marginLeft: 10 }]}>Analysing Data…</Text></>
+                : <><Text style={{ fontSize: 16 }}>✨</Text><Text style={[styles.predictBtnText, { marginLeft: 8 }]}>Get Price Prediction</Text></>}
+            </TouchableOpacity>
+
+            {/* Result Card */}
+            {result && (
+              <View style={styles.resultCard}>
+                <View style={styles.resultHeader}>
+                  <View>
+                    <Text style={styles.resultTitle}>{result.commodity}</Text>
+                    <Text style={styles.resultLocation}>📍 {result.district}, {result.state}</Text>
+                  </View>
+                  <View style={[styles.confidenceBadge, { backgroundColor: confidenceColors?.bg }]}>
+                    <Text style={[styles.confidenceText, { color: confidenceColors?.text }]}>
+                      {result.confidence.toUpperCase()} CONFIDENCE
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Price range bars */}
+                <View style={styles.priceBarsRow}>
+                  <View style={styles.priceBarItem}>
+                    <Text style={styles.priceBarLabel}>Min</Text>
+                    <View style={[styles.priceBar, { backgroundColor: "#FEF3C7" }]}>
+                      <Text style={[styles.priceBarValue, { color: "#D97706" }]}>
+                        ₹{result.suggested_min.toFixed(2)}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={[styles.priceBarItem, { flex: 1.4 }]}>
+                    <Text style={[styles.priceBarLabel, { color: theme.colors.primary }]}>Best Price</Text>
+                    <View style={[styles.priceBar, { backgroundColor: theme.colors.primarySoft, borderWidth: 2, borderColor: theme.colors.primary }]}>
+                      <Text style={[styles.priceBarValue, { color: theme.colors.primary, fontSize: 20 }]}>
+                        ₹{result.suggested_modal.toFixed(2)}
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.priceBarItem}>
+                    <Text style={styles.priceBarLabel}>Max</Text>
+                    <View style={[styles.priceBar, { backgroundColor: theme.colors.successSoft }]}>
+                      <Text style={[styles.priceBarValue, { color: theme.colors.success }]}>
+                        ₹{result.suggested_max.toFixed(2)}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+
+                <Text style={styles.perKg}>
+                  per kg · {MONTHS.find(m => m.value === month)?.label} · {season.label} Season
+                </Text>
+
+                {result.note ? (
+                  <View style={styles.noteBox}>
+                    <Ionicons name="information-circle-outline" size={14} color={theme.colors.primaryDark} />
+                    <Text style={styles.noteText}>  {result.note}</Text>
+                  </View>
+                ) : null}
+
+                <View style={styles.tipBox}>
+                  <Text style={styles.tipText}>
+                    💡 <Text style={{ fontWeight: "800" }}>Tip:</Text> Price near ₹{result.suggested_modal.toFixed(2)} for best conversion. Go higher for organic/premium quality.
+                  </Text>
+                </View>
+
+                {result.used_fallback && (
+                  <View style={styles.fallbackNote}>
+                    <Ionicons name="alert-circle-outline" size={13} color="#92400E" />
+                    <Text style={styles.fallbackText}>  Based on regional averages — local mandi data unavailable.</Text>
+                  </View>
+                )}
+              </View>
+            )}
+
+            <View style={{ height: 40 }} />
+          </View>
+        </ScrollView>
+
+        {/* State picker bottom sheet */}
+        {showStateModal && (
+          <View style={styles.modalOverlay}>
+            <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setShowStateModal(false)} />
+            <View style={styles.stateSheet}>
+              <View style={styles.stateHandle} />
+              <Text style={styles.stateSheetTitle}>Choose State</Text>
+              <View style={styles.stateSearchWrap}>
+                <Ionicons name="search-outline" size={16} color={theme.colors.textMuted} style={{ marginRight: 8 }} />
+                <TextInput
+                  style={styles.stateSearchInput}
+                  placeholder="Search state…"
+                  value={stateSearch}
+                  onChangeText={setStateSearch}
+                  placeholderTextColor={theme.colors.textMuted}
+                  autoFocus
+                />
+              </View>
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {filteredStates.map((s) => (
+                  <TouchableOpacity
+                    key={s}
+                    style={[styles.stateRow, state === s && styles.stateRowActive]}
+                    onPress={() => { setState(s); setShowStateModal(false); setStateSearch(""); }}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="location" size={14} color={state === s ? theme.colors.primary : theme.colors.textMuted} />
+                    <Text style={[styles.stateRowText, state === s && { color: theme.colors.primary, fontWeight: "700" }]}> {s}</Text>
+                    {state === s && <Ionicons name="checkmark" size={14} color={theme.colors.primary} style={{ marginLeft: "auto" }} />}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
           </View>
         )}
-      </TouchableOpacity>
-
-      {/* Results Card */}
-      {result && (
-        <View style={styles.resultCard}>
-          {/* Result Header */}
-          <View style={styles.resultHeader}>
-            <View style={styles.resultTitleRow}>
-              <Ionicons name="bulb-outline" size={18} color={theme.colors.textPrimary} />
-              <Text style={styles.resultTitle}>
-                {" "}Suggested Price for {result.commodity}
-              </Text>
-            </View>
-            <View
-              style={[
-                styles.confidenceBadge,
-                { backgroundColor: getConfidenceColor(result.confidence) },
-              ]}
-            >
-              <View style={styles.confidenceInner}>
-                <Ionicons
-                  name={result.confidence === "high" ? "checkmark-circle" : "alert-circle"}
-                  size={14}
-                  color="#fff"
-                />
-                <Text style={styles.confidenceText}>
-                  {" "}{result.confidence.toUpperCase()} confidence
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Price Display */}
-          <View style={styles.priceRow}>
-            <View style={styles.priceBox}>
-              <Text style={styles.priceLabel}>Min Price</Text>
-              <Text style={[styles.priceValue, { color: theme.colors.warning }]}>
-                ₹{result.suggested_min.toFixed(2)}
-              </Text>
-              <Text style={styles.priceUnit}>/kg</Text>
-            </View>
-
-            <View style={[styles.priceBox, styles.priceBoxHighlight]}>
-              <Text style={[styles.priceLabel, { color: "rgba(255,255,255,0.8)" }]}>
-                Best Price
-              </Text>
-              <Text style={[styles.priceValue, { color: "#fff", fontSize: 28 }]}>
-                ₹{result.suggested_modal.toFixed(2)}
-              </Text>
-              <Text style={[styles.priceUnit, { color: "rgba(255,255,255,0.7)" }]}>
-                /kg
-              </Text>
-            </View>
-
-            <View style={styles.priceBox}>
-              <Text style={styles.priceLabel}>Max Price</Text>
-              <Text style={[styles.priceValue, { color: theme.colors.success }]}>
-                ₹{result.suggested_max.toFixed(2)}
-              </Text>
-              <Text style={styles.priceUnit}>/kg</Text>
-            </View>
-          </View>
-
-          {/* Location Info */}
-          <View style={styles.resultMeta}>
-            <View style={styles.metaRow}>
-              <Ionicons name="location-outline" size={14} color={theme.colors.textSecondary} />
-              <Text style={styles.metaText}> {result.district}, {result.state}</Text>
-            </View>
-            <View style={styles.metaRow}>
-              <Ionicons name="calendar-outline" size={14} color={theme.colors.textSecondary} />
-              <Text style={styles.metaText}>
-                {" "}{MONTHS.find((m) => m.value === month)?.label} · {season.label}
-              </Text>
-            </View>
-          </View>
-
-          {/* Note */}
-          {result.note && (
-            <View style={styles.noteBox}>
-              <View style={styles.noteInner}>
-                <Ionicons name="information-circle-outline" size={16} color={theme.colors.primaryDark} />
-                <Text style={styles.noteText}> {result.note}</Text>
-              </View>
-            </View>
-          )}
-
-          {/* Fallback Warning */}
-          {result.used_fallback && (
-            <View style={styles.fallbackBox}>
-              <View style={styles.fallbackInner}>
-                <Ionicons name="warning-outline" size={16} color="#E65100" />
-                <Text style={styles.fallbackText}>
-                  {" "}Exact location data was not available. Price is estimated from
-                  overall commodity trends.
-                </Text>
-              </View>
-            </View>
-          )}
-
-          {/* Tip */}
-          <View style={styles.tipBox}>
-            <View style={styles.tipInner}>
-              <Ionicons name="bulb-outline" size={16} color={theme.colors.secondary} />
-              <Text style={styles.tipText}>
-                {" "}<Text style={{ fontWeight: "700" }}>Tip:</Text> Set your product
-                price close to the "Best Price" for maximum sales while staying
-                competitive in your area.
-              </Text>
-            </View>
-          </View>
-        </View>
-      )}
-
-      <View style={{ height: 40 }} />
-    </ScrollView>
+      </View>
+    </SafeAreaView>
   );
 }
 
-// ── Styles ───────────────────────────────────────────────────────────────────
-
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: theme.colors.background,
-    padding: 16,
-  },
-
-  // Header Card
-  headerCard: {
+  header: {
     backgroundColor: theme.colors.primary,
-    borderRadius: theme.borderRadius.lg,
-    padding: 24,
-    alignItems: "center",
-    marginBottom: 20,
-    ...theme.shadow.md,
+    paddingTop: 16, paddingBottom: 24, paddingHorizontal: 24,
+    alignItems: "center", overflow: "hidden",
   },
-  headerTitle: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: "#fff",
-    marginBottom: 6,
-  },
-  headerSubtitle: {
-    fontSize: 13,
-    color: "rgba(255,255,255,0.8)",
-    textAlign: "center",
-    lineHeight: 19,
-  },
+  headerOrb1: { position: "absolute", top: -20, right: -20, width: 120, height: 120, borderRadius: 60, backgroundColor: "rgba(255,255,255,0.07)" },
+  headerOrb2: { position: "absolute", bottom: 0, left: -30, width: 100, height: 100, borderRadius: 50, backgroundColor: "rgba(245,158,11,0.1)" },
+  headerIcon: { width: 64, height: 64, borderRadius: 32, backgroundColor: "rgba(255,255,255,0.18)", alignItems: "center", justifyContent: "center", marginBottom: 12, borderWidth: 2, borderColor: "rgba(255,255,255,0.3)" },
+  headerTitle: { fontSize: 22, fontWeight: "900", color: "#fff", marginBottom: 6 },
+  headerSub: { fontSize: 12, color: "rgba(255,255,255,0.75)", textAlign: "center", fontWeight: "500" },
 
-  // Sections
-  sectionTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: theme.colors.textPrimary,
-    marginBottom: 10,
-    marginTop: 16,
-  },
-  monthTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 16,
-    marginBottom: 10,
-  },
-  seasonBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  seasonBadgeText: {
-    fontSize: 12,
-    fontWeight: "500",
-    color: theme.colors.textMuted,
-  },
+  body: { padding: 16 },
+  sectionLabel: { fontSize: 13, fontWeight: "800", color: theme.colors.textPrimary, marginBottom: 10, marginTop: 16 },
 
-  // Search
-  searchInputWrapper: {
-    flexDirection: "row",
-    alignItems: "center",
-    borderWidth: 1.5,
-    borderColor: theme.colors.border,
-    borderRadius: theme.borderRadius.md,
-    paddingHorizontal: 12,
-    backgroundColor: "#fff",
-    marginBottom: 10,
+  inputWrap: {
+    flexDirection: "row", alignItems: "center",
+    borderWidth: 1.5, borderColor: theme.colors.border,
+    borderRadius: theme.borderRadius.md, backgroundColor: "#fff",
+    paddingHorizontal: 14, height: 50, ...theme.shadow.xs,
   },
-  searchInput: {
-    flex: 1,
-    paddingVertical: 8,
-    fontSize: 14,
-    color: theme.colors.textPrimary,
-  },
+  inputFocused: { borderColor: theme.colors.primary, backgroundColor: theme.colors.primarySoft },
+  input: { flex: 1, fontSize: 15, color: theme.colors.textPrimary },
 
-  // Chips
-  chipScroll: {
-    marginBottom: 8,
+  quickLabel: { fontSize: 11, fontWeight: "700", color: theme.colors.textMuted, marginBottom: 8, marginTop: 8 },
+  quickChip: {
+    borderWidth: 1.5, borderColor: theme.colors.border,
+    borderRadius: 20, paddingHorizontal: 14, paddingVertical: 7,
+    marginRight: 8, backgroundColor: "#fff",
   },
-  chip: {
-    borderWidth: 1.5,
-    borderColor: theme.colors.border,
-    borderRadius: theme.borderRadius.full,
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    marginRight: 8,
-    backgroundColor: "#fff",
-  },
-  chipActive: {
-    backgroundColor: theme.colors.primary,
-    borderColor: theme.colors.primary,
-  },
-  chipText: {
-    color: theme.colors.textSecondary,
-    fontSize: 13,
-    fontWeight: "500",
-  },
-  chipTextActive: {
-    color: "#fff",
-  },
+  quickChipActive: { backgroundColor: theme.colors.primary, borderColor: theme.colors.primary },
+  quickChipText: { fontSize: 13, fontWeight: "600", color: theme.colors.textSecondary },
 
-  // Inputs
-  label: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: theme.colors.textPrimary,
-    marginTop: 12,
-    marginBottom: 6,
-  },
-  input: {
-    borderWidth: 1.5,
-    borderColor: theme.colors.border,
-    borderRadius: theme.borderRadius.md,
-    padding: 12,
-    fontSize: 15,
-    color: theme.colors.textPrimary,
-    backgroundColor: "#fff",
-  },
+  monthHeadRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 16, marginBottom: 10 },
+  seasonBadge: { flexDirection: "row", alignItems: "center", borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
+  seasonText: { fontSize: 12, fontWeight: "700" },
 
-  // Month Grid
-  monthGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
+  monthGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   monthChip: {
-    width: "22%",
-    borderWidth: 1.5,
-    borderColor: theme.colors.border,
-    borderRadius: theme.borderRadius.sm,
-    paddingVertical: 10,
-    alignItems: "center",
-    backgroundColor: "#fff",
+    width: (width - 80) / 6,
+    borderWidth: 1.5, borderColor: theme.colors.border,
+    borderRadius: 8, paddingVertical: 10,
+    alignItems: "center", backgroundColor: "#fff",
   },
-  monthChipActive: {
-    backgroundColor: theme.colors.secondary,
-    borderColor: theme.colors.secondary,
-  },
-  monthChipText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: theme.colors.textSecondary,
-  },
-  monthChipTextActive: {
-    color: "#fff",
-  },
+  monthChipText: { fontSize: 12, fontWeight: "700", color: theme.colors.textSecondary },
 
-  // Button
-  btn: {
-    backgroundColor: theme.colors.primary,
-    borderRadius: theme.borderRadius.md,
-    paddingVertical: 16,
-    alignItems: "center",
-    marginTop: 24,
+  predictBtn: {
+    backgroundColor: theme.colors.primary, borderRadius: theme.borderRadius.md,
+    height: 54, flexDirection: "row", alignItems: "center",
+    justifyContent: "center", marginTop: 22, ...theme.shadow.xl,
   },
-  btnLoading: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  btnText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "700",
-  },
+  predictBtnText: { color: "#fff", fontSize: 16, fontWeight: "800" },
 
-  // Result Card
-  resultCard: {
-    backgroundColor: "#fff",
-    borderRadius: theme.borderRadius.lg,
-    padding: 20,
-    marginTop: 20,
-    ...theme.shadow.md,
-  },
-  resultHeader: {
-    alignItems: "center",
-    marginBottom: 20,
-  },
-  resultTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 8,
-  },
-  resultTitle: {
-    fontSize: 17,
-    fontWeight: "700",
-    color: theme.colors.textPrimary,
-    textAlign: "center",
-  },
-  confidenceBadge: {
-    borderRadius: theme.borderRadius.full,
-    paddingHorizontal: 14,
-    paddingVertical: 5,
-  },
-  confidenceInner: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  confidenceText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "700",
-  },
+  resultCard: { backgroundColor: "#fff", borderRadius: 18, padding: 18, marginTop: 20, borderWidth: 1, borderColor: theme.colors.border, ...theme.shadow.md },
+  resultHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18 },
+  resultTitle: { fontSize: 20, fontWeight: "900", color: theme.colors.textPrimary, marginBottom: 2 },
+  resultLocation: { fontSize: 12, color: theme.colors.textSecondary, fontWeight: "500" },
+  confidenceBadge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
+  confidenceText: { fontSize: 10, fontWeight: "900", letterSpacing: 0.4 },
 
-  // Price Display
-  priceRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 16,
-  },
-  priceBox: {
-    flex: 1,
-    alignItems: "center",
-    paddingVertical: 12,
-    backgroundColor: theme.colors.background,
-    borderRadius: theme.borderRadius.md,
-    marginHorizontal: 3,
-  },
-  priceBoxHighlight: {
-    backgroundColor: theme.colors.primary,
-    ...theme.shadow.sm,
-  },
-  priceLabel: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: theme.colors.textMuted,
-    marginBottom: 4,
-    textTransform: "uppercase",
-  },
-  priceValue: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: theme.colors.textPrimary,
-  },
-  priceUnit: {
-    fontSize: 11,
-    color: theme.colors.textMuted,
-    marginTop: 2,
-  },
+  priceBarsRow: { flexDirection: "row", gap: 8, marginBottom: 10 },
+  priceBarItem: { flex: 1, alignItems: "center" },
+  priceBarLabel: { fontSize: 10, fontWeight: "700", color: theme.colors.textMuted, marginBottom: 6, textTransform: "uppercase" },
+  priceBar: { width: "100%", borderRadius: 12, paddingVertical: 12, alignItems: "center", justifyContent: "center", minHeight: 56 },
+  priceBarValue: { fontSize: 16, fontWeight: "900" },
+  perKg: { fontSize: 11, color: theme.colors.textMuted, fontWeight: "600", textAlign: "center", marginBottom: 12 },
 
-  // Meta
-  resultMeta: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: theme.colors.border,
-  },
-  metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  metaText: {
-    fontSize: 12,
-    color: theme.colors.textSecondary,
-  },
+  noteBox: { flexDirection: "row", backgroundColor: theme.colors.primarySoft, borderRadius: 10, padding: 10, marginBottom: 8, alignItems: "flex-start" },
+  noteText: { flex: 1, fontSize: 12, color: theme.colors.primaryDark, lineHeight: 18 },
+  tipBox: { backgroundColor: theme.colors.secondarySoft, borderRadius: 10, padding: 12, borderLeftWidth: 3, borderLeftColor: theme.colors.secondary, marginBottom: 8 },
+  tipText: { fontSize: 12, color: theme.colors.secondaryDark, lineHeight: 18 },
+  fallbackNote: { flexDirection: "row", alignItems: "flex-start", backgroundColor: "#FFFBEB", borderRadius: 8, padding: 10 },
+  fallbackText: { flex: 1, fontSize: 11, color: "#92400E", lineHeight: 16 },
 
-  // Note
-  noteBox: {
-    backgroundColor: "#E8F5E9",
-    borderRadius: theme.borderRadius.sm,
-    padding: 12,
-    marginTop: 8,
-  },
-  noteInner: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-  },
-  noteText: {
-    fontSize: 12,
-    color: theme.colors.primaryDark,
-    lineHeight: 18,
-    flex: 1,
-  },
-
-  // Fallback Warning
-  fallbackBox: {
-    backgroundColor: "#FFF3E0",
-    borderRadius: theme.borderRadius.sm,
-    padding: 12,
-    marginTop: 8,
-  },
-  fallbackInner: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-  },
-  fallbackText: {
-    fontSize: 12,
-    color: "#E65100",
-    lineHeight: 18,
-    flex: 1,
-  },
-
-  // Tip
-  tipBox: {
-    backgroundColor: theme.colors.background,
-    borderRadius: theme.borderRadius.sm,
-    padding: 12,
-    marginTop: 12,
-    borderLeftWidth: 3,
-    borderLeftColor: theme.colors.secondary,
-  },
-  tipInner: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-  },
-  tipText: {
-    fontSize: 12,
-    color: theme.colors.textSecondary,
-    lineHeight: 18,
-    flex: 1,
-  },
+  // State modal
+  modalOverlay: { position: "absolute", top: 0, bottom: 0, left: 0, right: 0, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "flex-end", zIndex: 100 },
+  stateSheet: { backgroundColor: "#fff", borderTopLeftRadius: 22, borderTopRightRadius: 22, maxHeight: "72%", padding: 20, ...theme.shadow.lg },
+  stateHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: theme.colors.border, alignSelf: "center", marginBottom: 14 },
+  stateSheetTitle: { fontSize: 18, fontWeight: "800", color: theme.colors.textPrimary, marginBottom: 12 },
+  stateSearchWrap: { flexDirection: "row", alignItems: "center", borderWidth: 1.5, borderColor: theme.colors.border, borderRadius: 12, paddingHorizontal: 12, height: 44, marginBottom: 12 },
+  stateSearchInput: { flex: 1, fontSize: 14, color: theme.colors.textPrimary },
+  stateRow: { flexDirection: "row", alignItems: "center", paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: theme.colors.borderLight },
+  stateRowActive: { backgroundColor: theme.colors.primarySoft, borderRadius: 8, paddingHorizontal: 8 },
+  stateRowText: { fontSize: 15, color: theme.colors.textPrimary, fontWeight: "500", flex: 1 },
 });
