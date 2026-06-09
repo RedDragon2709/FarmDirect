@@ -57,6 +57,19 @@ test_reports/
 # MongoDB
 .mongorc.js
 
+# Sensitive files
+*.yml
+*.yaml
+*.key
+*.pem
+*.pfx
+*.p12
+*.json.backup
+secrets.*
+memory/test_credentials.md
+.secrets/
+credentials/
+
 # Temporary files
 *.tmp
 *.bak
