@@ -28,9 +28,9 @@ const MONTHS = [
 ];
 
 const getSeasonInfo = (m: number) => {
-  if ([6,7,8,9,10].includes(m)) return { emoji: "🌧️", label: "Kharif", color: "#3B82F6" };
-  if ([11,12,1,2,3].includes(m)) return { emoji: "❄️", label: "Rabi", color: "#8B5CF6" };
-  return { emoji: "☀️", label: "Zaid", color: "#F59E0B" };
+  if ([6,7,8,9,10].includes(m)) return { iconName: "rainy-outline", label: "Kharif", color: "#3B82F6" };
+  if ([11,12,1,2,3].includes(m)) return { iconName: "snow-outline", label: "Rabi", color: "#8B5CF6" };
+  return { iconName: "sunny-outline", label: "Zaid", color: "#F59E0B" };
 };
 
 const CONFIDENCE_COLORS = {
@@ -87,7 +87,9 @@ export default function PricePredictScreen() {
           <View style={styles.header}>
             <View style={styles.headerOrb1} />
             <View style={styles.headerOrb2} />
-            <View style={styles.headerIcon}><Text style={{ fontSize: 30 }}>🤖</Text></View>
+          <View style={styles.headerIcon}>
+            <Ionicons name="sparkles" size={30} color="#fff" />
+          </View>
             <Text style={styles.headerTitle}>AI Price Predictor</Text>
             <Text style={styles.headerSub}>ML-powered mandi price suggestions across India</Text>
           </View>
@@ -167,7 +169,7 @@ export default function PricePredictScreen() {
             <View style={styles.monthHeadRow}>
               <Text style={styles.sectionLabel}>Month</Text>
               <View style={[styles.seasonBadge, { backgroundColor: season.color + "18" }]}>
-                <Text style={{ fontSize: 12 }}>{season.emoji}</Text>
+                <Ionicons name={season.iconName as any} size={14} color={season.color} />
                 <Text style={[styles.seasonText, { color: season.color }]}>  {season.label}</Text>
               </View>
             </View>
@@ -191,7 +193,7 @@ export default function PricePredictScreen() {
             <TouchableOpacity style={[styles.predictBtn, loading && { opacity: 0.75 }]} onPress={handlePredict} disabled={loading} activeOpacity={0.88}>
               {loading
                 ? <><ActivityIndicator size="small" color="#fff" /><Text style={[styles.predictBtnText, { marginLeft: 10 }]}>Analysing Data…</Text></>
-                : <><Text style={{ fontSize: 16 }}>✨</Text><Text style={[styles.predictBtnText, { marginLeft: 8 }]}>Get Price Prediction</Text></>}
+                : <><Ionicons name="sparkles" size={16} color="#fff" /><Text style={[styles.predictBtnText, { marginLeft: 8 }]}>Get Price Prediction</Text></>}
             </TouchableOpacity>
 
             {/* Result Card */}
@@ -200,7 +202,10 @@ export default function PricePredictScreen() {
                 <View style={styles.resultHeader}>
                   <View>
                     <Text style={styles.resultTitle}>{result.commodity}</Text>
-                    <Text style={styles.resultLocation}>📍 {result.district}, {result.state}</Text>
+                    <View style={styles.resultLocationRow}>
+                      <Ionicons name="location" size={12} color={theme.colors.textSecondary} />
+                      <Text style={styles.resultLocation}> {result.district}, {result.state}</Text>
+                    </View>
                   </View>
                   <View style={[styles.confidenceBadge, { backgroundColor: confidenceColors?.bg }]}>
                     <Text style={[styles.confidenceText, { color: confidenceColors?.text }]}>
@@ -249,9 +254,10 @@ export default function PricePredictScreen() {
                 ) : null}
 
                 <View style={styles.tipBox}>
-                  <Text style={styles.tipText}>
-                    💡 <Text style={{ fontWeight: "800" }}>Tip:</Text> Price near ₹{result.suggested_modal.toFixed(2)} for best conversion. Go higher for organic/premium quality.
-                  </Text>
+                  <View style={styles.tipHeader}>
+                    <Ionicons name="bulb-outline" size={14} color={theme.colors.secondaryDark} />
+                    <Text style={styles.tipText}> <Text style={{ fontWeight: "800" }}>Tip:</Text> Price near ₹{result.suggested_modal.toFixed(2)} for best conversion. Go higher for organic/premium quality.</Text>
+                  </View>
                 </View>
 
                 {result.used_fallback && (
@@ -364,6 +370,7 @@ const styles = StyleSheet.create({
   resultHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18 },
   resultTitle: { fontSize: 20, fontWeight: "900", color: theme.colors.textPrimary, marginBottom: 2 },
   resultLocation: { fontSize: 12, color: theme.colors.textSecondary, fontWeight: "500" },
+  resultLocationRow: { flexDirection: "row", alignItems: "center", marginTop: 2 },
   confidenceBadge: { borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 },
   confidenceText: { fontSize: 10, fontWeight: "900", letterSpacing: 0.4 },
 
@@ -377,7 +384,8 @@ const styles = StyleSheet.create({
   noteBox: { flexDirection: "row", backgroundColor: theme.colors.primarySoft, borderRadius: 10, padding: 10, marginBottom: 8, alignItems: "flex-start" },
   noteText: { flex: 1, fontSize: 12, color: theme.colors.primaryDark, lineHeight: 18 },
   tipBox: { backgroundColor: theme.colors.secondarySoft, borderRadius: 10, padding: 12, borderLeftWidth: 3, borderLeftColor: theme.colors.secondary, marginBottom: 8 },
-  tipText: { fontSize: 12, color: theme.colors.secondaryDark, lineHeight: 18 },
+  tipHeader: { flexDirection: "row", alignItems: "flex-start" },
+  tipText: { flex: 1, fontSize: 12, color: theme.colors.secondaryDark, lineHeight: 18 },
   fallbackNote: { flexDirection: "row", alignItems: "flex-start", backgroundColor: "#FFFBEB", borderRadius: 8, padding: 10 },
   fallbackText: { flex: 1, fontSize: 11, color: "#92400E", lineHeight: 16 },
 

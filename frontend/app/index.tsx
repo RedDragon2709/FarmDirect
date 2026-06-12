@@ -99,7 +99,7 @@ export default function WelcomeScreen() {
           {[
             { num: "500+", label: "Farmers" },
             { num: "12 hr", label: "Fresh Cycle" },
-            { num: "4.9★",  label: "Rated" },
+            { num: "4.9", label: "Rating" },
           ].map((s) => (
             <View key={s.label} style={styles.statItem}>
               <Text style={styles.statNum}>{s.num}</Text>
@@ -118,7 +118,9 @@ export default function WelcomeScreen() {
         {/* Consumer block */}
         <View style={styles.roleBlock}>
           <View style={styles.roleBlockHeader}>
-            <Text style={{ fontSize: 22 }}>🛒</Text>
+            <View style={styles.roleBlockIconWrap}>
+              <Ionicons name="cart-outline" size={20} color={theme.colors.primary} />
+            </View>
             <Text style={styles.roleBlockTitle}>Buy fresh produce</Text>
           </View>
           <Text style={styles.roleBlockDesc}>
@@ -147,7 +149,9 @@ export default function WelcomeScreen() {
         {/* Farmer block */}
         <View style={[styles.roleBlock, styles.roleBlockAlt]}>
           <View style={styles.roleBlockHeader}>
-            <Text style={{ fontSize: 22 }}>🌾</Text>
+            <View style={[styles.roleBlockIconWrap, styles.roleBlockIconWrapGold]}>
+              <Ionicons name="leaf-outline" size={20} color={theme.colors.secondaryDark} />
+            </View>
             <Text style={styles.roleBlockTitle}>Sell my harvest</Text>
           </View>
           <Text style={styles.roleBlockDesc}>
@@ -273,6 +277,14 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFDF5",
   },
   roleBlockHeader: { flexDirection: "row", alignItems: "center", marginBottom: 6, gap: 8 },
+  roleBlockIconWrap: {
+    width: 36, height: 36, borderRadius: 10,
+    backgroundColor: theme.colors.primarySoft,
+    alignItems: "center", justifyContent: "center",
+  },
+  roleBlockIconWrapGold: {
+    backgroundColor: "#FFFBEB",
+  },
   roleBlockTitle: { fontSize: 16, fontWeight: "800", color: theme.colors.textPrimary },
   roleBlockDesc: {
     fontSize: 12, color: theme.colors.textSecondary,

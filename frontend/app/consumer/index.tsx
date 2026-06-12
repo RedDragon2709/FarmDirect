@@ -11,23 +11,27 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { api } from "../../src/api";
 import { theme } from "../../src/theme";
 import { addToCart, getCartCount, subscribeToCart } from "../../src/cart";
+import { ThemedEmoji, EmojiName } from "../../src/components/ThemedEmoji";
+import { formatAddress } from "../../src/utils/address";
+import AddressEditorModal from "../../src/components/AddressEditorModal";
 
 
-const CATEGORY_MAP: Record<string, { label: string; icon: string }> = {
-  all:       { label: "All",     icon: "🧺" },
-  vegetable: { label: "Veggies", icon: "🥬" },
-  fruit:     { label: "Fruits",  icon: "🍎" },
-  grain:     { label: "Grains",  icon: "🌾" },
-  dairy:     { label: "Dairy",   icon: "🥛" },
-  herb:      { label: "Herbs",   icon: "🌿" },
-  other:     { label: "Others",  icon: "📦" },
+
+const CATEGORY_MAP: Record<string, { label: string; icon: EmojiName }> = {
+  all:       { label: "All",     icon: "all" },
+  vegetable: { label: "Veggies", icon: "vegetable" },
+  fruit:     { label: "Fruits",  icon: "fruit" },
+  grain:     { label: "Grains",  icon: "grain" },
+  dairy:     { label: "Dairy",   icon: "dairy" },
+  herb:      { label: "Herbs",   icon: "herb" },
+  other:     { label: "Others",  icon: "other" },
 };
 const CATEGORIES = ["all", "vegetable", "fruit", "grain", "dairy", "herb", "other"];
 
 const BANNERS = [
-  { id: "1", emoji: "🌱", title: "Farm-Fresh Today", sub: "Harvested within 12 hours", color: "#0A7A40" },
-  { id: "2", emoji: "⚡", title: "Quick Delivery",   sub: "Get produce in under 30 min", color: "#F59E0B" },
-  { id: "3", emoji: "🤝", title: "Zero Middlemen",  sub: "100% direct from farmers", color: "#7C3AED" },
+  { id: "1", emoji: "sprout" as EmojiName, title: "Farm-Fresh Today", sub: "Harvested within 12 hours", color: "#0A7A40" },
+  { id: "2", emoji: "lightning" as EmojiName, title: "Quick Delivery",   sub: "Get produce in under 30 min", color: "#F59E0B" },
+  { id: "3", emoji: "shakehands" as EmojiName, title: "Zero Middlemen",  sub: "100% direct from farmers", color: "#7C3AED" },
 ];
 
 export default function BrowseScreen() {
@@ -47,12 +51,29 @@ export default function BrowseScreen() {
 
   // Cart State
   const [cartCount, setCartCount] = useState(0);
+  const [cartTotal, setCartTotal] = useState(0);
+  // Track per-product qty in cart for stepper display
+  const [cartQtyMap, setCartQtyMap] = useState<Record<string, number>>({});
+
+  const refreshCartState = async () => {
+    const { getCart } = await import("../../src/cart");
+    const cartItems = await getCart();
+    const map: Record<string, number> = {};
+    let total = 0;
+    let count = 0;
+    cartItems.forEach((item) => {
+      map[item.product_id] = item.quantity;
+      total += item.price * item.quantity;
+      count += item.quantity;
+    });
+    setCartQtyMap(map);
+    setCartCount(count);
+    setCartTotal(total);
+  };
 
   useEffect(() => {
-    getCartCount().then(setCartCount);
-    return subscribeToCart(() => {
-      getCartCount().then(setCartCount);
-    });
+    refreshCartState();
+    return subscribeToCart(() => { refreshCartState(); });
   }, []);
 
   useFocusEffect(useCallback(() => {
@@ -66,34 +87,38 @@ export default function BrowseScreen() {
       if (!addr) {
         setTimeout(() => setAddressModal(true), 600);
       } else {
-        setSavedAddress(addr.length > 30 ? addr.slice(0, 30) + "…" : addr);
+        const formatted = formatAddress(addr);
+        setSavedAddress(formatted.length > 30 ? formatted.slice(0, 30) + "…" : formatted);
+        setAddressInput(addr);
       }
     } catch {}
   };
 
-  const saveAddress = async () => {
-    if (!addressInput.trim()) {
-      Alert.alert("Enter Address", "Please enter your delivery address.");
-      return;
-    }
-    await AsyncStorage.setItem("delivery_address", addressInput.trim());
-    setSavedAddress(addressInput.length > 30 ? addressInput.slice(0, 30) + "…" : addressInput);
+  const saveAddress = async (addrStr: string) => {
+    await AsyncStorage.setItem("delivery_address", addrStr);
+    const formatted = formatAddress(addrStr);
+    setSavedAddress(formatted.length > 30 ? formatted.slice(0, 30) + "…" : formatted);
+    setAddressInput(addrStr);
     setAddressModal(false);
   };
 
   const handleAddToCart = async (product: any) => {
     try {
       await addToCart(product, 1);
-      Alert.alert(
-        "Added to Cart! 🛒",
-        `1 unit of "${product.name}" added to your shopping cart.`,
-        [
-          { text: "Keep Shopping", style: "cancel" },
-          { text: "View Cart", onPress: () => router.push("/consumer/cart") }
-        ]
-      );
+      // No alert – stepper now appears directly on the card
     } catch {
       Alert.alert("Error", "Could not add item to cart.");
+    }
+  };
+
+  const handleStepperChange = async (product: any, delta: number) => {
+    const { updateCartQuantity, removeFromCart } = await import("../../src/cart");
+    const currentQty = cartQtyMap[product.id] || 0;
+    const newQty = currentQty + delta;
+    if (newQty <= 0) {
+      await removeFromCart(product.id);
+    } else {
+      await updateCartQuantity(product.id, Math.min(newQty, product.stock));
     }
   };
 
@@ -154,7 +179,7 @@ export default function BrowseScreen() {
             onPress={() => router.push("/consumer/profile")}
           >
             <View style={styles.profileAvatar}>
-              <Text style={{ fontSize: 16 }}>👤</Text>
+              <ThemedEmoji name="user" inline size={16} />
             </View>
           </TouchableOpacity>
         </View>
@@ -212,7 +237,7 @@ export default function BrowseScreen() {
                 {BANNERS.map((b) => (
                   <View key={b.id} style={[styles.banner, { backgroundColor: b.color }]}>
                     <View style={styles.bannerOrb} />
-                    <Text style={styles.bannerEmoji}>{b.emoji}</Text>
+                    <ThemedEmoji name={b.emoji} size={24} style={{ marginRight: 14 }} />
                     <View>
                       <Text style={styles.bannerTitle}>{b.title}</Text>
                       <Text style={styles.bannerSub}>{b.sub}</Text>
@@ -237,7 +262,7 @@ export default function BrowseScreen() {
                       onPress={() => handleCategory(cat)}
                       activeOpacity={0.8}
                     >
-                      <Text style={styles.chipEmoji}>{info.icon}</Text>
+                      <ThemedEmoji name={info.icon} inline size={13} color={active ? "#fff" : undefined} style={{ marginRight: 4 }} />
                       <Text style={[styles.chipText, active && styles.chipTextActive]}>
                         {info.label}
                       </Text>
@@ -248,9 +273,15 @@ export default function BrowseScreen() {
 
               <View style={styles.sectionHeadRow}>
                 <Text style={styles.sectionHead}>
-                  {category === "all"
-                    ? "🌟 All Fresh Produce"
-                    : `${CATEGORY_MAP[category].icon} ${CATEGORY_MAP[category].label}`}
+                  {category === "all" ? (
+                    <Text>
+                      <ThemedEmoji name="star" inline size={14} /> All Fresh Produce
+                    </Text>
+                  ) : (
+                    <Text>
+                      <ThemedEmoji name={CATEGORY_MAP[category].icon} inline size={14} /> {CATEGORY_MAP[category].label}
+                    </Text>
+                  )}
                 </Text>
                 <Text style={styles.sectionCount}>{products.length} items</Text>
               </View>
@@ -258,7 +289,7 @@ export default function BrowseScreen() {
           }
           ListEmptyComponent={
             <View style={styles.empty}>
-              <Text style={{ fontSize: 48 }}>🌱</Text>
+              <ThemedEmoji name="sprout" size={48} />
               <Text style={styles.emptyTitle}>No produce found</Text>
               <Text style={styles.emptySub}>Try a different category or check back soon!</Text>
             </View>
@@ -270,7 +301,9 @@ export default function BrowseScreen() {
                 activeOpacity={0.93}
               >
                 <View style={styles.freshTag}>
-                  <Text style={styles.freshTagText}>🥬 Fresh</Text>
+                  <Text style={styles.freshTagText}>
+                    <ThemedEmoji name="fresh" inline size={9} color="#059669" /> Fresh
+                  </Text>
                 </View>
                 <View style={styles.imageBox}>
                   {item.image_base64 ? (
@@ -279,7 +312,7 @@ export default function BrowseScreen() {
                       style={styles.productImage}
                     />
                   ) : (
-                    <Text style={{ fontSize: 44 }}>🌿</Text>
+                    <ThemedEmoji name="sprout" size={44} />
                   )}
                 </View>
               </TouchableOpacity>
@@ -293,7 +326,9 @@ export default function BrowseScreen() {
                     <Text style={styles.deliveryPillText}> {getDummyDelivery(item.id)}</Text>
                   </View>
                   <Text style={styles.productName} numberOfLines={1}>{item.name}</Text>
-                  <Text style={styles.farmerName} numberOfLines={1}>🧑‍🌾 {item.farmer_name}</Text>
+                  <Text style={styles.farmerName} numberOfLines={1}>
+                    <ThemedEmoji name="farmer" inline size={11} /> {item.farmer_name}
+                  </Text>
                 </TouchableOpacity>
                 <View style={styles.cardFooter}>
                   <TouchableOpacity
@@ -304,80 +339,76 @@ export default function BrowseScreen() {
                     <Text style={styles.price}>₹{item.price}</Text>
                     <Text style={styles.unit}>/{item.unit}</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.addBtn}
-                    onPress={() => handleAddToCart(item)}
-                    activeOpacity={0.8}
-                  >
-                    <Ionicons name="add" size={16} color="#fff" />
-                    <Text style={styles.addBtnText}>ADD</Text>
-                  </TouchableOpacity>
+                  {cartQtyMap[item.id] > 0 ? (
+                    <View style={styles.stepperRow}>
+                      <TouchableOpacity
+                        style={styles.stepperBtn}
+                        onPress={() => handleStepperChange(item, -1)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="remove" size={14} color="#fff" />
+                      </TouchableOpacity>
+                      <Text style={styles.stepperQty}>{cartQtyMap[item.id]}</Text>
+                      <TouchableOpacity
+                        style={styles.stepperBtn}
+                        onPress={() => handleStepperChange(item, 1)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="add" size={14} color="#fff" />
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      style={styles.addBtn}
+                      onPress={() => handleAddToCart(item)}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="add" size={16} color="#fff" />
+                      <Text style={styles.addBtnText}>ADD</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               </View>
             </View>
           )}
         />
       </View>
-
-      {/* ---------- ADDRESS ONBOARDING MODAL ---------- */}
-      <Modal visible={addressModal} animationType="slide" transparent>
-        <View style={styles.modalOverlay}>
-          <TouchableOpacity style={StyleSheet.absoluteFill} onPress={() => setAddressModal(false)} />
-          <View style={styles.modalSheet}>
-            <View style={styles.modalHandle} />
-            <View style={styles.modalIconRow}>
-              <View style={styles.modalIconCircle}>
-                <Ionicons name="location" size={26} color={theme.colors.primary} />
+      
+      {/* ---------- FLOATING CART BANNER ---------- */}
+      {cartCount > 0 && (
+        <View style={styles.cartBannerContainer}>
+          <TouchableOpacity
+            style={styles.cartBanner}
+            onPress={() => router.push("/consumer/cart")}
+            activeOpacity={0.9}
+          >
+            <View style={styles.cartBannerLeft}>
+              <View style={styles.cartIconBadgeWrap}>
+                <Ionicons name="cart" size={18} color="#fff" />
+                <View style={styles.cartBannerBadge}>
+                  <Text style={styles.cartBannerBadgeText}>{cartCount}</Text>
+                </View>
+              </View>
+              <View style={{ marginLeft: 12 }}>
+                <Text style={styles.cartBannerPrice}>₹{cartTotal}</Text>
+                <Text style={styles.cartBannerSub}>Subtotal (excl. delivery)</Text>
               </View>
             </View>
-            <Text style={styles.modalTitle}>Where should we deliver?</Text>
-            <Text style={styles.modalSub}>
-              Enter your home or office address so we know where to deliver your fresh produce.
-            </Text>
-
-            <View style={styles.addressInputWrap}>
-              <Ionicons name="home-outline" size={18} color={theme.colors.textMuted} style={{ marginRight: 10 }} />
-              <TextInput
-                style={styles.addressTextInput}
-                placeholder="House no., Building, Street, Area…"
-                value={addressInput}
-                onChangeText={setAddressInput}
-                multiline
-                numberOfLines={2}
-                placeholderTextColor={theme.colors.textMuted}
-                autoFocus
-              />
+            <View style={styles.cartBannerRight}>
+              <Text style={styles.cartBannerAction}>View Cart</Text>
+              <Ionicons name="arrow-forward" size={16} color="#fff" style={{ marginLeft: 4 }} />
             </View>
-
-            <View style={styles.quickAddresses}>
-              <Text style={styles.quickLabel}>Quick fill:</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                {["Home", "Office", "Parents' Home", "Others"].map((q) => (
-                  <TouchableOpacity
-                    key={q}
-                    style={styles.quickChip}
-                    onPress={() => setAddressInput(addressInput ? addressInput + " " + q : q)}
-                  >
-                    <Text style={styles.quickChipText}>{q}</Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-
-            <TouchableOpacity style={styles.saveAddrBtn} onPress={saveAddress} activeOpacity={0.88}>
-              <Ionicons name="checkmark-circle" size={18} color="#fff" />
-              <Text style={styles.saveAddrBtnText}> Save Address & Continue</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.skipBtn}
-              onPress={() => setAddressModal(false)}
-            >
-              <Text style={styles.skipText}>Skip for now</Text>
-            </TouchableOpacity>
-          </View>
+          </TouchableOpacity>
         </View>
-      </Modal>
+      )}
+
+      {/* ---------- ADDRESS ONBOARDING MODAL ---------- */}
+      <AddressEditorModal
+        visible={addressModal}
+        onClose={() => setAddressModal(false)}
+        onSave={saveAddress}
+        initialAddressString={addressInput}
+      />
     </SafeAreaView>
   );
 }
@@ -499,6 +530,30 @@ const styles = StyleSheet.create({
   },
   addBtnText: { color: "#fff", fontSize: 11, fontWeight: "800", marginLeft: 2 },
 
+  stepperRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: theme.colors.primary,
+    borderRadius: 8,
+    overflow: "hidden",
+    ...theme.shadow.xs,
+  },
+  stepperBtn: {
+    width: 26,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: theme.colors.primary,
+  },
+  stepperQty: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "900",
+    paddingHorizontal: 6,
+    minWidth: 22,
+    textAlign: "center",
+  },
+
   empty: { alignItems: "center", paddingTop: 80, paddingHorizontal: 24 },
   emptyTitle: { fontSize: 18, fontWeight: "700", color: theme.colors.textPrimary, marginBottom: 6, marginTop: 10 },
   emptySub: { fontSize: 13, color: theme.colors.textMuted, textAlign: "center" },
@@ -571,5 +626,75 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 8,
     fontWeight: "900",
-  }
+  },
+  cartBannerContainer: {
+    position: "absolute",
+    bottom: 12,
+    left: 14,
+    right: 14,
+    zIndex: 99,
+  },
+  cartBanner: {
+    backgroundColor: theme.colors.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 14,
+    ...theme.shadow.md,
+  },
+  cartBannerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  cartIconBadgeWrap: {
+    position: "relative",
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cartBannerBadge: {
+    position: "absolute",
+    top: -4,
+    right: -4,
+    backgroundColor: theme.colors.error,
+    borderRadius: 7,
+    width: 14,
+    height: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cartBannerBadgeText: {
+    color: "#fff",
+    fontSize: 8,
+    fontWeight: "900",
+  },
+  cartBannerPrice: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  cartBannerSub: {
+    color: "rgba(255,255,255,0.76)",
+    fontSize: 10,
+    fontWeight: "600",
+    marginTop: 1,
+  },
+  cartBannerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.15)",
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 10,
+  },
+  cartBannerAction: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "800",
+  },
 });

@@ -9,6 +9,8 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { api } from "../../src/api";
 import { theme } from "../../src/theme";
+import { ThemedEmoji } from "../../src/components/ThemedEmoji";
+import { formatAddress, parseAddress } from "../../src/utils/address";
 
 /**
  * Auto-delivery logic:
@@ -18,7 +20,7 @@ import { theme } from "../../src/theme";
  * - This simulates a delivery partner system without needing one
  * - Farmer's only real job: Accept → Pack → Dispatch (3 steps)
  */
-const DELIVERY_WINDOW_MS = 30 * 60 * 1000; // 30 min in real, reduced for demo
+const DELIVERY_WINDOW_MS = 5 * 60 * 1000; // 5 min auto-delivery timer
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: string; next?: string; actionLabel?: string }> = {
   placed:     { label: "New Order",    color: "#3B82F6", bg: "#EFF6FF",  icon: "receipt-outline",          next: "confirmed",  actionLabel: "Accept Order" },
@@ -76,6 +78,83 @@ function DeliveryCountdown({ orderId, dispatchedAt }: { orderId: string; dispatc
   );
 }
 
+const getGroupedStatus = (items: any[]) => {
+  const statuses = items.map(item => item.status || "placed");
+  const uniqueStatuses = Array.from(new Set(statuses));
+  if (uniqueStatuses.length === 1) return uniqueStatuses[0];
+  
+  const activeItems = statuses.filter(s => s !== 'cancelled');
+  if (activeItems.length === 0) return 'cancelled';
+  
+  let minIdx = STATUS_ORDER.length;
+  let minStatus = 'placed';
+  for (const s of activeItems) {
+    const idx = STATUS_ORDER.indexOf(s);
+    if (idx !== -1 && idx < minIdx) {
+      minIdx = idx;
+      minStatus = s;
+    }
+  }
+  return minStatus;
+};
+
+const groupOrders = (ordersList: any[]) => {
+  const groups: Record<string, any[]> = {};
+  const ungrouped: any[] = [];
+  
+  ordersList.forEach((order) => {
+    const txId = order.transaction_id;
+    if (txId && txId.trim() !== "") {
+      if (!groups[txId]) {
+        groups[txId] = [];
+      }
+      groups[txId].push(order);
+    } else {
+      ungrouped.push(order);
+    }
+  });
+  
+  const groupedList: any[] = [];
+  
+  Object.keys(groups).forEach((txId) => {
+    const items = groups[txId];
+    const firstItem = items[0];
+    const totalAmount = items.reduce((sum: number, item: any) => sum + item.total, 0);
+    const overallStatus = getGroupedStatus(items);
+    
+    groupedList.push({
+      id: txId,
+      transaction_id: txId,
+      created_at: firstItem.created_at,
+      payment_method: firstItem.payment_method,
+      payment_status: firstItem.payment_status,
+      delivery_address: firstItem.delivery_address,
+      consumer_name: firstItem.consumer_name,
+      status: overallStatus,
+      items: items,
+      total: totalAmount
+    });
+  });
+  
+  ungrouped.forEach((order) => {
+    groupedList.push({
+      id: order.id,
+      transaction_id: "",
+      created_at: order.created_at,
+      payment_method: order.payment_method,
+      payment_status: order.payment_status,
+      delivery_address: order.delivery_address,
+      consumer_name: order.consumer_name,
+      status: order.status || "placed",
+      items: [order],
+      total: order.total
+    });
+  });
+  
+  groupedList.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  return groupedList;
+};
+
 export default function FarmerOrdersScreen() {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -105,7 +184,7 @@ export default function FarmerOrdersScreen() {
               setDispatchTimes(prev => ({ ...prev, [order.id]: parseInt(storedTime) }));
             }
           } else {
-            // No stored time: set now (order was dispatched before app opened)
+            // No stored time: set now
             const now = Date.now();
             await AsyncStorage.setItem(key, now.toString());
             setDispatchTimes(prev => ({ ...prev, [order.id]: now }));
@@ -122,17 +201,30 @@ export default function FarmerOrdersScreen() {
 
   useFocusEffect(useCallback(() => { load(); }, []));
 
-  const updateStatus = async (orderId: string, newStatus: string) => {
+  const updateGroupStatus = async (groupedOrder: any, newStatus: string) => {
     try {
-      const updated: any = await api.updateOrderStatus(orderId, newStatus);
-      setOrders(prev => prev.map(o => o.id === orderId ? updated : o));
+      const promises = groupedOrder.items.map((item: any) => api.updateOrderStatus(item.id, newStatus));
+      const results = await Promise.all(promises);
+      
+      // Update local state
+      setOrders(prev => {
+        return prev.map(o => {
+          const matchingResult = results.find(res => res.id === o.id);
+          return matchingResult || o;
+        });
+      });
+      
       // When dispatching, store timestamp for auto-advance
       if (newStatus === "dispatched") {
         const now = Date.now();
-        await AsyncStorage.setItem(`dispatch_time_${orderId}`, now.toString());
-        setDispatchTimes(prev => ({ ...prev, [orderId]: now }));
+        await Promise.all(
+          groupedOrder.items.map(async (item: any) => {
+            await AsyncStorage.setItem(`dispatch_time_${item.id}`, now.toString());
+            setDispatchTimes(prev => ({ ...prev, [item.id]: now }));
+          })
+        );
         Alert.alert(
-          "🛵 Order Dispatched!",
+          "Order Dispatched!",
           "Delivery is in progress. The order will be automatically marked as delivered once the delivery window closes.\n\nNo further action needed from you!"
         );
       }
@@ -141,15 +233,16 @@ export default function FarmerOrdersScreen() {
     }
   };
 
-  const filterOrders = () => {
-    if (tab === "action") return orders.filter(o => ["placed", "confirmed", "packed"].includes(o.status));
-    if (tab === "active") return orders.filter(o => o.status === "dispatched");
-    return orders.filter(o => ["delivered", "cancelled"].includes(o.status));
+  const filterOrders = (groupedList: any[]) => {
+    if (tab === "action") return groupedList.filter(o => ["placed", "confirmed", "packed"].includes(o.status));
+    if (tab === "active") return groupedList.filter(o => o.status === "dispatched");
+    return groupedList.filter(o => ["delivered", "cancelled"].includes(o.status));
   };
 
-  const filteredOrders = filterOrders();
-  const newCount = orders.filter(o => o.status === "placed").length;
-  const activeCount = orders.filter(o => o.status === "dispatched").length;
+  const groupedOrders = groupOrders(orders);
+  const filteredOrders = filterOrders(groupedOrders);
+  const newCount = groupedOrders.filter(o => o.status === "placed").length;
+  const activeCount = groupedOrders.filter(o => o.status === "dispatched").length;
 
   if (loading) return (
     <View style={styles.loadingWrap}>
@@ -182,9 +275,9 @@ export default function FarmerOrdersScreen() {
       {/* Tabs */}
       <View style={styles.tabBar}>
         {TABS.map((t) => {
-          const count = t.key === "action" ? orders.filter(o => ["placed","confirmed","packed"].includes(o.status)).length
+          const count = t.key === "action" ? groupedOrders.filter(o => ["placed","confirmed","packed"].includes(o.status)).length
             : t.key === "active" ? activeCount
-            : orders.filter(o => ["delivered","cancelled"].includes(o.status)).length;
+            : groupedOrders.filter(o => ["delivered","cancelled"].includes(o.status)).length;
           return (
             <TouchableOpacity
               key={t.key}
@@ -209,14 +302,14 @@ export default function FarmerOrdersScreen() {
       {tab === "action" && filteredOrders.length > 0 && (
         <View style={styles.hintBanner}>
           <Text style={styles.hintText}>
-            👇 Accept orders → Pack them → Hand over to delivery partner
+            Accept orders → Pack them → Hand over to delivery partner
           </Text>
         </View>
       )}
       {tab === "active" && filteredOrders.length > 0 && (
         <View style={[styles.hintBanner, { backgroundColor: "#FFF4EE", borderLeftColor: "#FF6B35" }]}>
           <Text style={[styles.hintText, { color: "#9A3412" }]}>
-            🛵 These orders are out for delivery. Auto-marked as delivered on arrival.
+            These orders are out for delivery. Auto-marked as delivered on arrival.
           </Text>
         </View>
       )}
@@ -235,9 +328,7 @@ export default function FarmerOrdersScreen() {
         }
         ListEmptyComponent={
           <View style={styles.empty}>
-            <Text style={{ fontSize: 52 }}>
-              {tab === "action" ? "📬" : tab === "active" ? "🛵" : "✅"}
-            </Text>
+            <ThemedEmoji name={tab === "action" ? "box" : tab === "active" ? "rider" : "success"} size={52} />
             <Text style={styles.emptyTitle}>
               {tab === "action" ? "No orders pending"
                 : tab === "active" ? "No deliveries in progress"
@@ -250,12 +341,14 @@ export default function FarmerOrdersScreen() {
             </Text>
           </View>
         }
-        renderItem={({ item }) => {
-          const statusVal = item.status || "placed";
+        renderItem={({ item: groupedOrder }) => {
+          const statusVal = groupedOrder.status || "placed";
           const cfg = STATUS_CONFIG[statusVal] || { label: statusVal, color: "#666", bg: "#F8FAFC", icon: "ellipse-outline", next: undefined, actionLabel: undefined };
           const isNew = statusVal === "placed";
           const isDispatched = statusVal === "dispatched";
           const currentIdx = STATUS_ORDER.indexOf(statusVal);
+          const firstSubItem = groupedOrder.items[0];
+          const productNames = groupedOrder.items.map((it: any) => it.product_name).join(", ");
 
           return (
             <View style={[styles.card, isNew && styles.cardNew, isDispatched && styles.cardDispatched]}>
@@ -272,9 +365,9 @@ export default function FarmerOrdersScreen() {
                   <Ionicons name={cfg.icon as any} size={20} color={cfg.color} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.productName}>{item.product_name}</Text>
+                  <Text style={styles.productName}>{productNames}</Text>
                   <Text style={styles.customerLine}>
-                    <Ionicons name="person-outline" size={11} color={theme.colors.textMuted} /> {item.consumer_name}
+                    <Ionicons name="person-outline" size={11} color={theme.colors.textMuted} /> {groupedOrder.consumer_name}
                   </Text>
                 </View>
                 <View style={[styles.statusBadge, { backgroundColor: cfg.bg, borderColor: cfg.color + "50" }]}>
@@ -283,26 +376,34 @@ export default function FarmerOrdersScreen() {
               </View>
 
               {/* Delivery countdown for dispatched */}
-              {isDispatched && dispatchTimes[item.id] && (
-                <DeliveryCountdown orderId={item.id} dispatchedAt={dispatchTimes[item.id]} />
+              {isDispatched && dispatchTimes[firstSubItem.id] && (
+                <DeliveryCountdown orderId={firstSubItem.id} dispatchedAt={dispatchTimes[firstSubItem.id]} />
               )}
 
-              {/* Order details */}
+              {/* Order items lists */}
+              <View style={{ marginBottom: 12 }}>
+                {groupedOrder.items.map((subItem: any) => (
+                  <View key={subItem.id} style={styles.productDetailItem}>
+                    <Ionicons name="cube-outline" size={11} color={theme.colors.textSecondary} />
+                    <Text style={styles.productDetailText}>
+                      {subItem.product_name} · {subItem.quantity} {subItem.unit || "unit"} · <Text style={{ fontWeight: "700" }}>₹{subItem.total}</Text>
+                    </Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Order summaries */}
               <View style={styles.detailsRow}>
                 <View style={styles.detailChip}>
-                  <Ionicons name="cube-outline" size={12} color={theme.colors.textSecondary} />
-                  <Text style={styles.detailText}> {item.quantity} {item.unit || "unit"}</Text>
-                </View>
-                <View style={styles.detailChip}>
                   <Ionicons name="cash-outline" size={12} color={theme.colors.primary} />
-                  <Text style={[styles.detailText, { color: theme.colors.primary, fontWeight: "800" }]}> ₹{item.total}</Text>
+                  <Text style={[styles.detailText, { color: theme.colors.primary, fontWeight: "800" }]}> Total: ₹{groupedOrder.total}</Text>
                 </View>
                 <View style={[
                   styles.detailChip,
-                  { backgroundColor: item.payment_status === "paid" ? theme.colors.successSoft : "#FFFBEB" },
+                  { backgroundColor: groupedOrder.payment_status === "paid" ? theme.colors.successSoft : "#FFFBEB" },
                 ]}>
-                  <Text style={{ fontSize: 10, fontWeight: "800", color: item.payment_status === "paid" ? theme.colors.success : "#D97706" }}>
-                    {item.payment_status === "paid" ? "✓ PAID" : "COD"}
+                  <Text style={{ fontSize: 10, fontWeight: "800", color: groupedOrder.payment_status === "paid" ? theme.colors.success : "#D97706" }}>
+                    {groupedOrder.payment_status === "paid" ? "✓ PAID" : groupedOrder.payment_method || "COD"}
                   </Text>
                 </View>
               </View>
@@ -326,7 +427,7 @@ export default function FarmerOrdersScreen() {
               {/* Address */}
               <View style={styles.addrRow}>
                 <Ionicons name="location-outline" size={12} color={theme.colors.textMuted} />
-                <Text style={styles.addrText} numberOfLines={1}> {item.delivery_address}</Text>
+                <Text style={styles.addrText} numberOfLines={2}> {formatAddress(groupedOrder.delivery_address)}</Text>
               </View>
 
               {/* Action buttons — only for "action" tab items */}
@@ -338,7 +439,7 @@ export default function FarmerOrdersScreen() {
                       onPress={() =>
                         Alert.alert("Reject Order", "This will cancel the order. Proceed?", [
                           { text: "No" },
-                          { text: "Cancel Order", style: "destructive", onPress: () => updateStatus(item.id, "cancelled") },
+                          { text: "Cancel Order", style: "destructive", onPress: () => updateGroupStatus(groupedOrder, "cancelled") },
                         ])
                       }
                       activeOpacity={0.8}
@@ -351,17 +452,17 @@ export default function FarmerOrdersScreen() {
                     style={[styles.actionBtn, statusVal === "placed" && { backgroundColor: "#2563EB" }]}
                     onPress={() => {
                       if (statusVal === "packed") {
-                        // Confirm before dispatching — this is the last manual step
+                        // Confirm before dispatching
                         Alert.alert(
                           "Hand Over to Delivery?",
-                          `Confirm that "${item.product_name}" has been handed to the delivery partner. After this, delivery tracks automatically!`,
+                          `Confirm that these items have been handed to the delivery partner. After this, delivery tracks automatically!`,
                           [
                             { text: "Not yet" },
-                            { text: "Yes, Dispatch!", onPress: () => updateStatus(item.id, cfg.next!) },
+                            { text: "Yes, Dispatch!", onPress: () => updateGroupStatus(groupedOrder, cfg.next!) },
                           ]
                         );
                       } else {
-                        updateStatus(item.id, cfg.next!);
+                        updateGroupStatus(groupedOrder, cfg.next!);
                       }
                     }}
                     activeOpacity={0.88}
@@ -377,7 +478,7 @@ export default function FarmerOrdersScreen() {
                 <View style={styles.autoTrackNote}>
                   <Ionicons name="shield-checkmark" size={13} color="#FF6B35" />
                   <Text style={styles.autoTrackText}>
-                    {"  "}Auto-tracking active · Will mark delivered on arrival
+                    {"  "}Auto-tracking active · Will mark delivered in 5 min
                   </Text>
                 </View>
               )}
@@ -385,7 +486,7 @@ export default function FarmerOrdersScreen() {
               {statusVal === "delivered" && (
                 <View style={styles.deliveredNote}>
                   <Ionicons name="checkmark-circle" size={13} color={theme.colors.success} />
-                  <Text style={styles.deliveredNoteText}> Order completed · ₹{item.total} earned</Text>
+                  <Text style={styles.deliveredNoteText}> Order completed · ₹{groupedOrder.total} earned</Text>
                 </View>
               )}
             </View>
@@ -541,4 +642,15 @@ const styles = StyleSheet.create({
   empty: { alignItems: "center", paddingTop: 90, paddingHorizontal: 30 },
   emptyTitle: { fontSize: 18, fontWeight: "800", color: theme.colors.textPrimary, marginTop: 12, marginBottom: 6 },
   emptySub: { fontSize: 13, color: theme.colors.textMuted, textAlign: "center", lineHeight: 20 },
+  productDetailItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  productDetailText: {
+    fontSize: 12,
+    color: theme.colors.textSecondary,
+    marginLeft: 6,
+    fontWeight: "500",
+  },
 });

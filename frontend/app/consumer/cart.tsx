@@ -11,6 +11,9 @@ import { api } from "../../src/api";
 import { theme } from "../../src/theme";
 import { getCart, removeFromCart, updateCartQuantity, clearCart, subscribeToCart, CartItem } from "../../src/cart";
 import PaymentModal from "../../src/components/PaymentModal";
+import { ThemedEmoji } from "../../src/components/ThemedEmoji";
+import { formatAddress, parseAddress } from "../../src/utils/address";
+import AddressEditorModal from "../../src/components/AddressEditorModal";
 
 export default function CartScreen() {
   const router = useRouter();
@@ -20,6 +23,7 @@ export default function CartScreen() {
   const [savedAddresses, setSavedAddresses] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [paymentVisible, setPaymentVisible] = useState(false);
+  const [addressModalOpen, setAddressModalOpen] = useState(false);
 
   useEffect(() => {
     loadCart();
@@ -94,6 +98,7 @@ export default function CartScreen() {
 
     try {
       const trimmedAddress = address.trim();
+      const sharedTxnId = transactionId || `COD-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
       
       // 1. Place order for each product in the cart
       const orderPromises = cartItems.map((item) =>
@@ -103,7 +108,7 @@ export default function CartScreen() {
           delivery_address: trimmedAddress,
           payment_method: method,
           payment_status: method === "COD" ? "pending" : "paid",
-          transaction_id: transactionId || undefined
+          transaction_id: sharedTxnId
         })
       );
 
@@ -127,7 +132,7 @@ export default function CartScreen() {
       await clearCart();
       
       Alert.alert(
-        "Order Successful! 🎉",
+        "Order Successful!",
         "Your orders have been placed successfully.",
         [
           { text: "View Orders", onPress: () => router.push("/consumer/orders") }
@@ -160,7 +165,7 @@ export default function CartScreen() {
         </View>
 
         <View style={styles.emptyContainer}>
-          <Text style={{ fontSize: 72 }}>🛒</Text>
+          <ThemedEmoji name="cart" size={72} />
           <Text style={styles.emptyTitle}>Your Cart is Empty</Text>
           <Text style={styles.emptySub}>Add farm-fresh produce to your cart and get it delivered directly to your doorstep.</Text>
           <TouchableOpacity 
@@ -202,44 +207,59 @@ export default function CartScreen() {
               <View style={styles.chipsContainer}>
                 <Text style={styles.chipsLabel}>Select Stored Address:</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 6 }}>
-                  {savedAddresses.map((addrOption, idx) => (
-                    <TouchableOpacity
-                      key={idx}
-                      style={[
-                        styles.addressChip,
-                        address.trim() === addrOption.trim() && styles.addressChipActive
-                      ]}
-                      onPress={() => setAddress(addrOption)}
-                    >
-                      <Ionicons 
-                        name="home" 
-                        size={12} 
-                        color={address.trim() === addrOption.trim() ? "#fff" : theme.colors.primary} 
-                        style={{ marginRight: 4 }}
-                      />
-                      <Text 
+                  {savedAddresses.map((addrOption, idx) => {
+                    const parsedOpt = parseAddress(addrOption);
+                    const chipIcon = parsedOpt.tag === "Home" ? "home" : parsedOpt.tag === "Work" ? "briefcase" : "location";
+                    return (
+                      <TouchableOpacity
+                        key={idx}
                         style={[
-                          styles.addressChipText,
-                          address.trim() === addrOption.trim() && styles.addressChipTextActive
+                          styles.addressChip,
+                          address.trim() === addrOption.trim() && styles.addressChipActive
                         ]}
-                        numberOfLines={1}
+                        onPress={() => setAddress(addrOption)}
                       >
-                        {addrOption.length > 25 ? addrOption.slice(0, 25) + "..." : addrOption}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+                        <Ionicons 
+                          name={chipIcon} 
+                          size={12} 
+                          color={address.trim() === addrOption.trim() ? "#fff" : theme.colors.primary} 
+                          style={{ marginRight: 4 }}
+                        />
+                        <Text 
+                          style={[
+                            styles.addressChipText,
+                            address.trim() === addrOption.trim() && styles.addressChipTextActive
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {formatAddress(addrOption).length > 25 ? formatAddress(addrOption).slice(0, 25) + "..." : formatAddress(addrOption)}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </ScrollView>
               </View>
             )}
 
-            <TextInput
-              style={styles.addressInput}
-              value={address}
-              onChangeText={setAddress}
-              multiline
-              placeholder="Enter your house number, building, street, and area..."
-              placeholderTextColor={theme.colors.textMuted}
-            />
+            {/* Structured Address Display Card */}
+            <View style={styles.addressDisplayCard}>
+              <View style={styles.addressCardHeader}>
+                <Ionicons name="location" size={16} color={theme.colors.primary} style={{ marginRight: 6 }} />
+                <Text style={styles.addressCardTitle}>
+                  {address ? `${parseAddress(address).tag} Address` : "No Address Selected"}
+                </Text>
+              </View>
+              <Text style={styles.addressCardText}>
+                {address ? formatAddress(address) : "Please select a stored address or enter a new one to continue."}
+              </Text>
+              <TouchableOpacity
+                style={styles.addressEditBtn}
+                onPress={() => setAddressModalOpen(true)}
+              >
+                <Ionicons name="create-outline" size={14} color={theme.colors.primary} />
+                <Text style={styles.addressEditBtnText}> {address ? "Edit Delivery Address" : "Add Delivery Address"}</Text>
+              </TouchableOpacity>
+            </View>
 
             {/* Billing details */}
             <View style={styles.billCard}>
@@ -285,14 +305,16 @@ export default function CartScreen() {
                   style={styles.productImage}
                 />
               ) : (
-                <Text style={{ fontSize: 28 }}>🌿</Text>
+                <ThemedEmoji name="sprout" size={28} />
               )}
             </View>
 
             {/* Body */}
             <View style={styles.cardBody}>
               <Text style={styles.productName} numberOfLines={1}>{item.name}</Text>
-              <Text style={styles.farmerName}>🧑‍🌾 {item.farmer_name}</Text>
+              <Text style={styles.farmerName}>
+                <ThemedEmoji name="farmer" inline size={11} /> {item.farmer_name}
+              </Text>
               
               <View style={styles.priceRow}>
                 <Text style={styles.price}>₹{item.price}</Text>
@@ -337,6 +359,25 @@ export default function CartScreen() {
         amount={grandTotal}
         productName={`${cartItems.length} Produce items`}
         onSuccess={handlePaymentSuccess}
+      />
+
+      <AddressEditorModal
+        visible={addressModalOpen}
+        onClose={() => setAddressModalOpen(false)}
+        onSave={async (newAddr) => {
+          setAddress(newAddr);
+          let updated = [...savedAddresses];
+          if (!updated.includes(newAddr)) {
+            updated.push(newAddr);
+            if (updated.length > 5) updated.shift();
+            setSavedAddresses(updated);
+            try {
+              await api.updateProfile({ addresses: updated });
+            } catch {}
+          }
+          await AsyncStorage.setItem("delivery_address", newAddr);
+        }}
+        initialAddressString={address}
       />
     </SafeAreaView>
   );
@@ -468,17 +509,48 @@ const styles = StyleSheet.create({
     color: theme.colors.textPrimary,
     marginBottom: 6,
   },
-  addressInput: {
+  addressDisplayCard: {
+    backgroundColor: "#fff",
     borderWidth: 1.5,
     borderColor: theme.colors.border,
-    borderRadius: 12,
-    padding: 12,
-    fontSize: 14,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
+    ...theme.shadow.xs,
+  },
+  addressCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  addressCardTitle: {
+    fontSize: 12,
+    fontWeight: "700",
     color: theme.colors.textPrimary,
-    backgroundColor: "#fff",
-    marginBottom: 18,
-    height: 70,
-    textAlignVertical: "top"
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  addressCardText: {
+    fontSize: 13,
+    color: theme.colors.textSecondary,
+    lineHeight: 18,
+    marginBottom: 10,
+  },
+  addressEditBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: theme.colors.primarySoft,
+    alignSelf: "flex-start",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.primaryLight + "20",
+  },
+  addressEditBtnText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: theme.colors.primary,
   },
   chipsContainer: {
     marginBottom: 10,

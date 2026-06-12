@@ -10,21 +10,22 @@ import { useFocusEffect } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { api } from "../../src/api";
 import { theme } from "../../src/theme";
+import { ThemedEmoji, EmojiName } from "../../src/components/ThemedEmoji";
 
 const CATEGORIES = ["vegetable", "fruit", "grain", "dairy", "herb", "other"];
 const UNITS = ["kg", "g", "litre", "dozen", "piece", "bunch"];
-const CAT_ICONS: Record<string, string> = {
-  vegetable: "🥬", fruit: "🍎", grain: "🌾",
-  dairy: "🥛", herb: "🌿", other: "📦",
+const CAT_ICONS: Record<string, EmojiName> = {
+  vegetable: "vegetable", fruit: "fruit", grain: "grain",
+  dairy: "dairy", herb: "herb", other: "other",
 };
 
 const FARM_TYPES = [
-  { id: "organic",  label: "Organic",      emoji: "🌿" },
-  { id: "mixed",    label: "Mixed",        emoji: "🌾" },
-  { id: "dairy",    label: "Dairy Farm",   emoji: "🐄" },
-  { id: "poultry",  label: "Poultry",      emoji: "🐓" },
-  { id: "orchard",  label: "Orchard",      emoji: "🍎" },
-  { id: "other",    label: "Other",        emoji: "🏡" },
+  { id: "organic",  label: "Organic",      emoji: "sprout" as EmojiName },
+  { id: "mixed",    label: "Mixed",        emoji: "grain" as EmojiName },
+  { id: "dairy",    label: "Dairy Farm",   emoji: "cow" as EmojiName },
+  { id: "poultry",  label: "Poultry",      emoji: "poultry" as EmojiName },
+  { id: "orchard",  label: "Orchard",      emoji: "fruit" as EmojiName },
+  { id: "other",    label: "Other",        emoji: "home" as EmojiName },
 ];
 
 export default function FarmerDashboardScreen() {
@@ -128,7 +129,7 @@ export default function FarmerDashboardScreen() {
       ]);
 
       setShowOnboarding(false);
-      Alert.alert("Welcome aboard! 🌾", `Your farm "${farmName}" is now registered. Start listing your produce!`);
+      Alert.alert("Welcome aboard!", `Your farm "${farmName}" is now registered. Start listing your produce!`);
     } catch (e: any) {
       Alert.alert("Error", e.message || "Failed to save farm details.");
     } finally {
@@ -164,8 +165,8 @@ export default function FarmerDashboardScreen() {
 
   const showImageOptions = () => {
     Alert.alert("Product Photo", "Choose a photo source", [
-      { text: "📷  Take Photo", onPress: pickImageFromCamera },
-      { text: "🖼️  Choose from Gallery", onPress: pickImageFromGallery },
+      { text: "Take Photo", onPress: pickImageFromCamera },
+      { text: "Choose from Gallery", onPress: pickImageFromGallery },
       { text: "Remove Photo", style: "destructive", onPress: () => { setImageUri(""); setImageBase64(""); } },
       { text: "Cancel", style: "cancel" },
     ]);
@@ -178,7 +179,7 @@ export default function FarmerDashboardScreen() {
     setLoading(true);
     try {
       await api.createProduct({ name, category, price: parseFloat(price), stock: parseInt(stock), unit, description, image_base64: imageBase64 });
-      Alert.alert("🎉 Listed!", `"${name}" is now live on the marketplace.`);
+      Alert.alert("Listed!", `"${name}" is now live on the marketplace.`);
       setName(""); setPrice(""); setStock(""); setDescription(""); setImageBase64(""); setImageUri("");
       loadStats();
     } catch (e: any) {
@@ -199,11 +200,11 @@ export default function FarmerDashboardScreen() {
           <Animated.View style={[{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
             <View style={styles.greetRow}>
               <View>
-                <Text style={styles.greetText}>{greeting}, {userName}! 🌾</Text>
+                <Text style={styles.greetText}>{greeting}, {userName}!</Text>
                 <Text style={styles.greetSub}>Your farm dashboard</Text>
               </View>
               <View style={styles.greetAvatar}>
-                <Text style={{ fontSize: 22 }}>🧑‍🌾</Text>
+                <ThemedEmoji name="farmer" size={22} />
               </View>
             </View>
             <View style={styles.statsRow}>
@@ -243,7 +244,7 @@ export default function FarmerDashboardScreen() {
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }}>
             {CATEGORIES.map((cat) => (
               <TouchableOpacity key={cat} style={[styles.chip, category === cat && styles.chipActive]} onPress={() => setCategory(cat)} activeOpacity={0.8}>
-                <Text style={{ fontSize: 13 }}>{CAT_ICONS[cat]}</Text>
+                <ThemedEmoji name={CAT_ICONS[cat]} inline size={13} color={category === cat ? "#fff" : undefined} />
                 <Text style={[styles.chipText, category === cat && styles.chipTextActive]}>  {cat}</Text>
               </TouchableOpacity>
             ))}
@@ -329,7 +330,7 @@ export default function FarmerDashboardScreen() {
           <View style={styles.onboardSheet}>
             <View style={styles.onboardHandle} />
             <View style={styles.onboardIconRow}>
-              <View style={styles.onboardIcon}><Text style={{ fontSize: 32 }}>🌾</Text></View>
+              <View style={styles.onboardIcon}><ThemedEmoji name="welcome" size={32} /></View>
             </View>
             <Text style={styles.onboardTitle}>Welcome, Farmer!</Text>
             <Text style={styles.onboardSub}>
@@ -366,7 +367,7 @@ export default function FarmerDashboardScreen() {
                     onPress={() => setFarmType(ft.id)}
                     activeOpacity={0.8}
                   >
-                    <Text style={{ fontSize: 18 }}>{ft.emoji}</Text>
+                    <ThemedEmoji name={ft.emoji} inline size={18} color={farmType === ft.id ? theme.colors.primary : undefined} />
                     <Text style={[styles.farmTypeLabel, farmType === ft.id && { color: theme.colors.primary }]}>{ft.label}</Text>
                   </TouchableOpacity>
                 ))}
@@ -387,7 +388,7 @@ export default function FarmerDashboardScreen() {
               activeOpacity={0.88}
             >
               <Text style={styles.onboardBtnText}>
-                {onboardingLoading ? "Saving…" : "🌱 Register My Farm"}
+                {onboardingLoading ? "Saving…" : "Register My Farm"}
               </Text>
             </TouchableOpacity>
           </View>

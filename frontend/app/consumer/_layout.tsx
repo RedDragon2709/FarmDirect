@@ -31,9 +31,19 @@ export default function ConsumerLayout() {
           fontSize: 11,
           fontWeight: "700",
         },
-        headerStyle: { backgroundColor: theme.colors.primary },
-        headerTintColor: "#fff",
-        headerTitleStyle: { fontWeight: "800", fontSize: 17 },
+        headerStyle: {
+          backgroundColor: "#fff",
+          borderBottomWidth: 1,
+          borderBottomColor: theme.colors.borderLight,
+          elevation: 0,
+          shadowOpacity: 0,
+        },
+        headerTintColor: theme.colors.textPrimary,
+        headerTitleStyle: {
+          fontWeight: "800",
+          fontSize: 18,
+          color: theme.colors.textPrimary,
+        },
       }}
     >
       <Tabs.Screen
@@ -78,6 +88,14 @@ export default function ConsumerLayout() {
           headerShown: false,
           tabBarLabel: "Profile",
           tabBarIcon: ({ color, size }) => <Ionicons name="person-circle-outline" size={size || 22} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="saved-products"
+        options={{
+          href: null,  // hidden from tab bar
+          title: "Saved Products",
+          headerShown: false,
         }}
       />
     </Tabs>

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import {
   View, Text, StyleSheet, TouchableOpacity, Alert,
-  ScrollView, StatusBar, Switch,
+  ScrollView, StatusBar, Switch, Modal, Linking, FlatList,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -9,6 +9,29 @@ import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { api } from "../../src/api";
 import { theme } from "../../src/theme";
+
+const FAQ_ITEMS = [
+  {
+    q: "How do I list fresh produce?",
+    a: "Go to the main Dashboard (Add Produce) tab. Enter the name, category, price, stock quantity, unit, description, and upload a photo, then tap 'List on Marketplace'.",
+  },
+  {
+    q: "How do I receive payments?",
+    a: "Payments for digital/UPI orders are processed instantly. Cash on Delivery (COD) orders are collected by the delivery rider and settled to your bank account weekly.",
+  },
+  {
+    q: "How do order statuses work?",
+    a: "When a customer orders, it appears in your 'Orders' tab as 'Placed'. Tap 'Confirm' to accept. Once harvested and packed, mark as 'Packed'. Mark as 'Dispatched' when the delivery rider picks it up.",
+  },
+  {
+    q: "Can I update a product price or stock?",
+    a: "Yes! In 'My Listed Produce', you can view your current stock. If you need to edit or delete a listing, tap 'Remove' and list a fresh batch.",
+  },
+  {
+    q: "How does the AI Price Predictor work?",
+    a: "It fetches current Mandi market data across your state/district and runs an ML model to suggest the optimal minimum, maximum, and modal price for your crop.",
+  },
+];
 
 export default function FarmerProfileScreen() {
   const router = useRouter();
@@ -18,6 +41,10 @@ export default function FarmerProfileScreen() {
   const [farmType, setFarmType] = useState("");
   const [farmSize, setFarmSize] = useState("");
   const [notifEnabled, setNotifEnabled] = useState(true);
+
+  // FAQ Modal states
+  const [faqOpen, setFaqOpen] = useState(false);
+  const [expandedFaq, setExpandedFaq] = useState<number | null>(null);
 
   useEffect(() => {
     AsyncStorage.getItem("user").then((u) => { if (u) setUser(JSON.parse(u)); });
@@ -44,6 +71,19 @@ export default function FarmerProfileScreen() {
     ]);
   };
 
+  const handleMenuAction = (action: string) => {
+    switch (action) {
+      case "help":
+        setFaqOpen(true);
+        break;
+      case "rate":
+        Linking.openURL("https://play.google.com/store/apps").catch(() => {
+          Alert.alert("Rate Us", "Search 'FarmDirect' on the Play Store or App Store to rate us!");
+        });
+        break;
+    }
+  };
+
   const initials = user?.name
     ?.split(" ")
     .map((w: string) => w[0])
@@ -52,8 +92,8 @@ export default function FarmerProfileScreen() {
     .slice(0, 2) || "F";
 
   const FARM_TYPE_LABELS: Record<string, string> = {
-    organic: "🌿 Organic", mixed: "🌾 Mixed", dairy: "🐄 Dairy Farm",
-    poultry: "🐓 Poultry", orchard: "🍎 Orchard", other: "🏡 Other",
+    organic: "Organic", mixed: "Mixed", dairy: "Dairy Farm",
+    poultry: "Poultry", orchard: "Orchard", other: "Other",
   };
 
   const MENU = [
@@ -80,8 +120,8 @@ export default function FarmerProfileScreen() {
     { icon: "wallet-outline",    label: "Earnings Summary",     color: "#0A7A40",  action: () => router.push("/farmer/earnings") },
     { icon: "leaf-outline",      label: "My Listed Produce",    color: "#F59E0B",  action: () => router.push("/farmer/my-produce") },
     { icon: "sparkles-outline",  label: "AI Price Predictor",   color: "#8B5CF6",  action: () => router.push("/farmer/price-predict") },
-    { icon: "help-circle-outline", label: "Help & Support",     color: "#06B6D4",  action: () => Alert.alert("Help", "Contact us at farmdirect@support.in") },
-    { icon: "star-outline",      label: "Rate the App",         color: "#F59E0B",  action: () => Alert.alert("Rate", "Opening app store…") },
+    { icon: "help-circle-outline", label: "Help & Support FAQs", color: "#06B6D4",  action: () => handleMenuAction("help") },
+    { icon: "star-outline",      label: "Rate the App",         color: "#F59E0B",  action: () => handleMenuAction("rate") },
   ];
 
   return (
@@ -189,13 +229,63 @@ export default function FarmerProfileScreen() {
           <Text style={styles.editFarmText}> Edit Farm Profile</Text>
         </TouchableOpacity>
 
-        <Text style={styles.version}>FarmDirect v1.0.0 · Made with 🌱 in India</Text>
+        <View style={styles.versionRow}>
+          <Ionicons name="leaf" size={12} color={theme.colors.primary} />
+          <Text style={styles.version}> FarmDirect v1.0.0 · Made in India</Text>
+        </View>
 
         <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.87}>
           <Ionicons name="log-out-outline" size={18} color={theme.colors.error} />
           <Text style={styles.logoutText}> Sign Out</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* ── FAQ Modal ─────────────────────────────────────────────────────────── */}
+      <Modal visible={faqOpen} animationType="slide" presentationStyle="pageSheet">
+        <View style={styles.modalHeader}>
+          <Text style={styles.modalHeaderTitle}>Farmer Help & Support</Text>
+          <TouchableOpacity onPress={() => setFaqOpen(false)} style={styles.modalClose}>
+            <Ionicons name="close" size={22} color={theme.colors.textPrimary} />
+          </TouchableOpacity>
+        </View>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }}>
+          {FAQ_ITEMS.map((item, idx) => (
+            <TouchableOpacity
+              key={idx}
+              style={styles.faqCard}
+              onPress={() => setExpandedFaq(expandedFaq === idx ? null : idx)}
+              activeOpacity={0.8}
+            >
+              <View style={styles.faqHeader}>
+                <View style={[styles.faqNum, { backgroundColor: theme.colors.primarySoft }]}>
+                  <Text style={styles.faqNumText}>{idx + 1}</Text>
+                </View>
+                <Text style={styles.faqQ}>{item.q}</Text>
+                <Ionicons
+                  name={expandedFaq === idx ? "chevron-up" : "chevron-down"}
+                  size={16}
+                  color={theme.colors.textMuted}
+                />
+              </View>
+              {expandedFaq === idx && (
+                <Text style={styles.faqA}>{item.a}</Text>
+              )}
+            </TouchableOpacity>
+          ))}
+          <TouchableOpacity
+            style={styles.contactSupportBtn}
+            onPress={() => {
+              setFaqOpen(false);
+              Linking.openURL("tel:+918000123456").catch(() => {
+                Alert.alert("Support Contact", "Reach us at +91 80001 23456 or email farmdirect@support.in");
+              });
+            }}
+          >
+            <Ionicons name="call" size={16} color="#fff" />
+            <Text style={styles.contactSupportText}> Call Support Hotline</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -238,10 +328,44 @@ const styles = StyleSheet.create({
   editFarmText: { color: theme.colors.primary, fontSize: 14, fontWeight: "700" },
 
   version: { textAlign: "center", fontSize: 12, color: theme.colors.textMuted, marginBottom: 16, fontWeight: "500" },
+  versionRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", marginBottom: 16 },
   logoutBtn: {
     flexDirection: "row", alignItems: "center", justifyContent: "center",
     marginHorizontal: 16, borderWidth: 2, borderColor: theme.colors.error,
     borderRadius: 14, height: 50, backgroundColor: theme.colors.errorSoft,
   },
   logoutText: { color: theme.colors.error, fontSize: 15, fontWeight: "800" },
+
+  // Shared Modal Header Styles
+  modalHeader: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingHorizontal: 20, paddingVertical: 16,
+    borderBottomWidth: 1, borderBottomColor: theme.colors.borderLight,
+    backgroundColor: "#fff",
+  },
+  modalHeaderTitle: { fontSize: 18, fontWeight: "800", color: theme.colors.textPrimary },
+  modalClose: {
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: theme.colors.surfaceAlt,
+    alignItems: "center", justifyContent: "center",
+  },
+
+  // FAQ
+  faqCard: {
+    backgroundColor: "#fff", borderRadius: 14,
+    borderWidth: 1, borderColor: theme.colors.border,
+    padding: 14, marginBottom: 10, ...theme.shadow.xs,
+  },
+  faqHeader: { flexDirection: "row", alignItems: "center", gap: 10 },
+  faqNum: { width: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center" },
+  faqNumText: { fontSize: 12, fontWeight: "900", color: theme.colors.primary },
+  faqQ: { flex: 1, fontSize: 14, fontWeight: "700", color: theme.colors.textPrimary },
+  faqA: { fontSize: 13, color: theme.colors.textSecondary, lineHeight: 19, marginTop: 10, paddingLeft: 36 },
+  contactSupportBtn: {
+    backgroundColor: theme.colors.primary, flexDirection: "row",
+    alignItems: "center", justifyContent: "center",
+    borderRadius: 14, height: 50, marginTop: 8, marginBottom: 20,
+    ...theme.shadow.sm,
+  },
+  contactSupportText: { color: "#fff", fontSize: 15, fontWeight: "800" },
 });

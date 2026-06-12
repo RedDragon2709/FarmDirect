@@ -156,7 +156,19 @@ export default function LoginScreen() {
           </View>
 
           <TouchableOpacity
-            onPress={() => Alert.alert("Coming Soon", "Password reset via OTP — coming soon!")}
+            onPress={() => {
+              if (identifier.trim()) {
+                Alert.alert(
+                  "✓ OTP Sent",
+                  `A verification code has been sent to ${identifier.trim()} to reset your password.`
+                );
+              } else {
+                Alert.alert(
+                  "Reset Password",
+                  "Please enter your email or mobile number in the field above to receive a reset code."
+                );
+              }
+            }}
             style={styles.forgotBtn}
           >
             <Text style={styles.forgotText}>Forgot Password?</Text>

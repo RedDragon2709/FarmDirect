@@ -333,7 +333,7 @@ export default function PaymentModal({ visible, amount, productName, onSuccess, 
                 </Animated.View>
                 <Animated.View style={{ opacity: successFade }}>
                   <Text style={styles.successTitle}>Payment Successful!</Text>
-                  <Text style={styles.successSub}>Your order has been placed 🎉</Text>
+                  <Text style={styles.successSub}>Your order has been placed successfully!</Text>
                   <View style={styles.txnBox}>
                     <Text style={styles.txnLabel}>Transaction ID</Text>
                     <Text style={styles.txnId}>{txnId}</Text>

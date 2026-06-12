@@ -26,7 +26,6 @@ const ROLE_OPTIONS = [
   {
     type: "farmer" as const,
     icon: "account-cowboy-hat",
-    emoji: "🌾",
     title: "I'm a Farmer",
     desc: "List your fresh produce, manage orders & earn directly — no middlemen.",
     color: "#0A7A40",
@@ -35,7 +34,6 @@ const ROLE_OPTIONS = [
   {
     type: "consumer" as const,
     icon: "cart",
-    emoji: "🛒",
     title: "I'm a Buyer",
     desc: "Browse farm-fresh produce and get it delivered to your door.",
     color: "#F59E0B",
@@ -171,7 +169,11 @@ export default function RegisterScreen() {
                     activeOpacity={0.88}
                   >
                     <View style={[styles.roleIconWrap, { backgroundColor: isSelected ? role.color : "#F3F4F6" }]}>
-                      <Text style={{ fontSize: 28 }}>{role.emoji}</Text>
+                      <MaterialCommunityIcons
+                        name={role.icon as any}
+                        size={30}
+                        color={isSelected ? "#fff" : role.color}
+                      />
                     </View>
                     <View style={styles.roleText}>
                       <Text style={[styles.roleTitle, isSelected && { color: role.color }]}>{role.title}</Text>
@@ -210,7 +212,11 @@ export default function RegisterScreen() {
 
               {/* Role indicator */}
               <View style={styles.rolePill}>
-                <Text style={{ fontSize: 16 }}>{userType === "farmer" ? "🌾" : "🛒"}</Text>
+                <Ionicons
+                  name={userType === "farmer" ? "leaf" : "cart"}
+                  size={16}
+                  color={theme.colors.primary}
+                />
                 <Text style={styles.rolePillText}>
                   Registering as {userType === "farmer" ? "Farmer" : "Buyer"}
                 </Text>

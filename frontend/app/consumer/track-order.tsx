@@ -8,6 +8,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { WebView } from "react-native-webview";
 import { theme } from "../../src/theme";
+import { ThemedEmoji } from "../../src/components/ThemedEmoji";
 
 const { width } = Dimensions.get("window");
 
@@ -42,9 +43,9 @@ const buildMapHTML = (fromLat: number, fromLng: number, toLat: number, toLng: nu
     var map = L.map('map', { zoomControl: false, attributionControl: false }).setView([${riderLat}, ${riderLng}], 13);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-    var farmIcon = L.divIcon({ html:'<div style="font-size:28px">🌾</div>', className:'', iconAnchor:[14,14] });
-    var homeIcon = L.divIcon({ html:'<div style="font-size:28px">🏠</div>', className:'', iconAnchor:[14,14] });
-    var riderIcon = L.divIcon({ html:'<div style="font-size:32px; filter:drop-shadow(2px 2px 4px rgba(0,0,0,0.4))">🛵</div>', className:'', iconAnchor:[16,16] });
+    var farmIcon = L.divIcon({ html:'<div style="width:36px; height:36px; border-radius:18px; background:#FEF3C7; border:2px solid #B45309; display:flex; align-items:center; justify-content:center; box-shadow:0 3px 6px rgba(0,0,0,0.25)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#B45309" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20M12 6c-2-2-4-2-4 0c0 4 4 4 4 8c0-4 4-4 4-8c0-2-2-2-4 0ZM12 12c-2-2-4-2-4 0c0 4 4 4 4 6c0-4 4-4 4-6c0-2-2-2-4 0Z"/></svg></div>', className:'', iconAnchor:[18,18] });
+    var homeIcon = L.divIcon({ html:'<div style="width:36px; height:36px; border-radius:18px; background:#E0F2FE; border:2px solid #0284C7; display:flex; align-items:center; justify-content:center; box-shadow:0 3px 6px rgba(0,0,0,0.25)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0284C7" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>', className:'', iconAnchor:[18,18] });
+    var riderIcon = L.divIcon({ html:'<div style="width:40px; height:40px; border-radius:20px; background:#DCFCE7; border:2px solid #16A34A; display:flex; align-items:center; justify-content:center; box-shadow:0 4px 8px rgba(0,0,0,0.3)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0A7A40" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/><path d="M5.5 18.5H10l1.5-6H19a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-3"/><path d="M12 6.5V11l-2 3"/></svg></div>', className:'', iconAnchor:[20,20] });
 
     L.marker([${fromLat}, ${fromLng}], {icon: farmIcon}).addTo(map).bindPopup('<b>Farm</b><br>Fresh produce pickup');
     L.marker([${toLat}, ${toLng}], {icon: homeIcon}).addTo(map).bindPopup('<b>Your Home</b><br>Delivery destination');
@@ -118,7 +119,7 @@ export default function TrackOrderScreen() {
               startInLoadingState
               renderLoading={() => (
                 <View style={styles.mapLoading}>
-                  <Text style={{ fontSize: 32 }}>🗺️</Text>
+                  <ThemedEmoji name="map" size={32} />
                   <Text style={styles.mapLoadingText}>Loading map…</Text>
                 </View>
               )}
@@ -149,13 +150,13 @@ export default function TrackOrderScreen() {
           {/* Driver card */}
           <View style={styles.driverCard}>
             <View style={styles.driverAvatar}>
-              <Text style={{ fontSize: 26 }}>🧑‍🦱</Text>
+              <ThemedEmoji name="driver" size={26} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.driverName}>Rahul S. · Delivery Partner</Text>
               <View style={styles.driverRatingRow}>
                 <Ionicons name="star" size={12} color={theme.colors.secondary} />
-                <Text style={styles.driverRating}> 4.8 · On the way 🛵</Text>
+                <Text style={styles.driverRating}> 4.8 · On the way <ThemedEmoji name="rider" inline size={11} /></Text>
               </View>
             </View>
             <TouchableOpacity style={styles.actionIconBtn}>

@@ -1,6 +1,11 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import Constants from "expo-constants";
 
-const BASE_URL = "http://10.39.138.56:8000";
+// Resolve local host IP dynamically for development
+const debuggerHost = Constants.expoConfig?.hostUri;
+const localIp = debuggerHost ? debuggerHost.split(":")[0] : "localhost";
+
+const BASE_URL = `http://${localIp}:8000`;
 
 async function getToken(): Promise<string | null> {
   return AsyncStorage.getItem("token");
@@ -107,6 +112,46 @@ export const api = {
   // ── Earnings ───────────────────────────────────────────────────────────────
   earningsSummary: () => request("GET", "/api/earnings/summary"),
 
+  // ── Consumer Stats ────────────────────────────────────────────────────────
+  consumerStats: () => request("GET", "/api/consumer/stats"),
+
+  // ── Reviews ────────────────────────────────────────────────────────────────
+  postReview: (data: { order_id: string; product_id: string; rating: number; comment?: string }) =>
+    request("POST", "/api/reviews", data),
+
+  getProductReviews: (product_id: string) =>
+    request("GET", `/api/reviews/product/${product_id}`, undefined, false),
+
+  getOrderReview: (order_id: string) =>
+    request("GET", `/api/reviews/order/${order_id}`),
+
+  getMyReviews: () => request("GET", "/api/reviews/mine"),
+
+  // ── Saved Products ─────────────────────────────────────────────────────────
+  toggleSaved: (data: {
+    product_id: string;
+    product_name: string;
+    price: number;
+    unit: string;
+    farmer_name: string;
+    image_base64?: string;
+  }) => request("POST", "/api/saved/toggle", data),
+
+  getSaved: () => request("GET", "/api/saved"),
+
+  checkSaved: (product_id: string) =>
+    request("GET", `/api/saved/check/${product_id}`),
+
+  // ── Notification Prefs ─────────────────────────────────────────────────────
+  getNotifPrefs: () => request("GET", "/api/notifications/prefs"),
+
+  updateNotifPrefs: (data: {
+    order_updates?: boolean;
+    promotions?: boolean;
+    new_produce?: boolean;
+    price_alerts?: boolean;
+  }) => request("PUT", "/api/notifications/prefs", data),
+
   // ── ML Price Prediction ───────────────────────────────────────────────────
   predictPrice: (data: {
     commodity: string;
@@ -117,7 +162,7 @@ export const api = {
 };
 
 // ── ML Service ──────────────────────────────────────────────────────────────
-const ML_BASE_URL = "http://10.39.138.56:8001";
+const ML_BASE_URL = `http://${localIp}:8001`;
 
 async function mlRequest(
   method: string,
