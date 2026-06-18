@@ -97,7 +97,7 @@ export default function WelcomeScreen() {
         {/* Stats */}
         <View style={styles.statsRow}>
           {[
-            { num: "500+", label: "Farmers" },
+            { num: "2+", label: "Farmers" },
             { num: "12 hr", label: "Fresh Cycle" },
             { num: "4.9", label: "Rating" },
           ].map((s) => (

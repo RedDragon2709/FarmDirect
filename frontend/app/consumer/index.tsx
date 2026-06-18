@@ -54,6 +54,7 @@ export default function BrowseScreen() {
   const [cartTotal, setCartTotal] = useState(0);
   // Track per-product qty in cart for stepper display
   const [cartQtyMap, setCartQtyMap] = useState<Record<string, number>>({});
+  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
 
   const refreshCartState = async () => {
     const { getCart } = await import("../../src/cart");
@@ -85,7 +86,11 @@ export default function BrowseScreen() {
     try {
       const addr = await AsyncStorage.getItem("delivery_address");
       if (!addr) {
-        setTimeout(() => setAddressModal(true), 600);
+        const prompted = await AsyncStorage.getItem("address_prompted");
+        if (!prompted) {
+          await AsyncStorage.setItem("address_prompted", "true");
+          setTimeout(() => setAddressModal(true), 600);
+        }
       } else {
         const formatted = formatAddress(addr);
         setSavedAddress(formatted.length > 30 ? formatted.slice(0, 30) + "…" : formatted);
@@ -102,11 +107,29 @@ export default function BrowseScreen() {
     setAddressModal(false);
   };
 
+  const handleClearCartPress = () => {
+    Alert.alert(
+      "Clear Cart?",
+      "Are you sure you want to remove all items from your cart?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Clear",
+          style: "destructive",
+          onPress: async () => {
+            const { clearCart } = await import("../../src/cart");
+            await clearCart();
+          },
+        },
+      ]
+    );
+  };
+
   const handleAddToCart = async (product: any) => {
     try {
       await addToCart(product, 1);
       // No alert – stepper now appears directly on the card
-    } catch {
+    } catch (e: any) {
       Alert.alert("Error", "Could not add item to cart.");
     }
   };
@@ -122,11 +145,54 @@ export default function BrowseScreen() {
     }
   };
 
+  const handleToggleSave = async (product: any) => {
+    setSavedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(product.id)) {
+        next.delete(product.id);
+      } else {
+        next.add(product.id);
+      }
+      return next;
+    });
+
+    try {
+      await api.toggleSaved({
+        product_id: product.id,
+        product_name: product.name,
+        price: product.price,
+        unit: product.unit,
+        farmer_name: product.farmer_name,
+        image_base64: product.image_base64 || "",
+      });
+    } catch {
+      setSavedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(product.id)) {
+          next.delete(product.id);
+        } else {
+          next.add(product.id);
+        }
+        return next;
+      });
+      Alert.alert("Error", "Could not update saved products.");
+    }
+  };
+
   const load = async (s = search, c = category) => {
     try {
-      const data: any = await api.listProducts(s || undefined, c === "all" ? undefined : c);
-      setProducts(data);
-    } catch {}
+      const [productsData, savedData] = await Promise.all([
+        api.listProducts(s || undefined, c === "all" ? undefined : c),
+        api.getSaved()
+      ]);
+      setProducts(productsData);
+      setSavedIds(new Set((savedData as any[]).map((p: any) => p.product_id)));
+    } catch {
+      try {
+        const productsData = await api.listProducts(s || undefined, c === "all" ? undefined : c);
+        setProducts(productsData);
+      } catch {}
+    }
     finally { setLoading(false); setRefreshing(false); }
   };
 
@@ -295,36 +361,60 @@ export default function BrowseScreen() {
             </View>
           }
           renderItem={({ item }) => (
-            <View style={styles.card}>
+            <View style={[styles.card, item.stock === 0 && styles.cardSoldOut]}>
               <TouchableOpacity
-                onPress={() => router.push(`/product/${item.id}`)}
-                activeOpacity={0.93}
+                onPress={() => item.stock > 0 && router.push(`/product/${item.id}`)}
+                activeOpacity={item.stock > 0 ? 0.93 : 1}
               >
-                <View style={styles.freshTag}>
-                  <Text style={styles.freshTagText}>
-                    <ThemedEmoji name="fresh" inline size={9} color="#059669" /> Fresh
-                  </Text>
-                </View>
+                {item.stock > 0 && (
+                  <View style={styles.freshTag}>
+                    <Text style={styles.freshTagText}>
+                      <ThemedEmoji name="fresh" inline size={9} color="#059669" /> Fresh
+                    </Text>
+                  </View>
+                )}
                 <View style={styles.imageBox}>
                   {item.image_base64 ? (
                     <Image
                       source={{ uri: `data:image/jpeg;base64,${item.image_base64}` }}
-                      style={styles.productImage}
+                      style={[styles.productImage, item.stock === 0 && { opacity: 0.45 }]}
                     />
                   ) : (
-                    <ThemedEmoji name="sprout" size={44} />
+                    <ThemedEmoji name="sprout" size={44} style={{ opacity: item.stock === 0 ? 0.45 : 1 }} />
+                  )}
+                  {item.stock === 0 && (
+                    <View style={styles.soldOutOverlay}>
+                      <Text style={styles.soldOutOverlayText}>SOLD OUT</Text>
+                    </View>
                   )}
                 </View>
               </TouchableOpacity>
+
+              {/* Floating Heart Button */}
+              {item.stock > 0 && (
+                <TouchableOpacity
+                  style={styles.heartBtn}
+                  onPress={() => handleToggleSave(item)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name={savedIds.has(item.id) ? "heart" : "heart-outline"}
+                    size={16}
+                    color={savedIds.has(item.id) ? theme.colors.error : theme.colors.textMuted}
+                  />
+                </TouchableOpacity>
+              )}
               <View style={styles.cardBody}>
                 <TouchableOpacity
-                  onPress={() => router.push(`/product/${item.id}`)}
-                  activeOpacity={0.93}
+                  onPress={() => item.stock > 0 && router.push(`/product/${item.id}`)}
+                  activeOpacity={item.stock > 0 ? 0.93 : 1}
                 >
-                  <View style={styles.deliveryPill}>
-                    <Ionicons name="flash" size={9} color={theme.colors.secondary} />
-                    <Text style={styles.deliveryPillText}> {getDummyDelivery(item.id)}</Text>
-                  </View>
+                  {item.stock > 0 && (
+                    <View style={styles.deliveryPill}>
+                      <Ionicons name="flash" size={9} color={theme.colors.secondary} />
+                      <Text style={styles.deliveryPillText}> {getDummyDelivery(item.id)}</Text>
+                    </View>
+                  )}
                   <Text style={styles.productName} numberOfLines={1}>{item.name}</Text>
                   <Text style={styles.farmerName} numberOfLines={1}>
                     <ThemedEmoji name="farmer" inline size={11} /> {item.farmer_name}
@@ -332,14 +422,18 @@ export default function BrowseScreen() {
                 </TouchableOpacity>
                 <View style={styles.cardFooter}>
                   <TouchableOpacity
-                    onPress={() => router.push(`/product/${item.id}`)}
-                    activeOpacity={0.93}
+                    onPress={() => item.stock > 0 && router.push(`/product/${item.id}`)}
+                    activeOpacity={item.stock > 0 ? 0.93 : 1}
                     style={{ flex: 1 }}
                   >
                     <Text style={styles.price}>₹{item.price}</Text>
                     <Text style={styles.unit}>/{item.unit}</Text>
                   </TouchableOpacity>
-                  {cartQtyMap[item.id] > 0 ? (
+                  {item.stock === 0 ? (
+                    <View style={styles.soldOutBtn}>
+                      <Text style={styles.soldOutBtnText}>Sold Out</Text>
+                    </View>
+                  ) : cartQtyMap[item.id] > 0 ? (
                     <View style={styles.stepperRow}>
                       <TouchableOpacity
                         style={styles.stepperBtn}
@@ -378,9 +472,9 @@ export default function BrowseScreen() {
       {cartCount > 0 && (
         <View style={styles.cartBannerContainer}>
           <TouchableOpacity
-            style={styles.cartBanner}
+            style={styles.cartBannerMain}
             onPress={() => router.push("/consumer/cart")}
-            activeOpacity={0.9}
+            activeOpacity={0.85}
           >
             <View style={styles.cartBannerLeft}>
               <View style={styles.cartIconBadgeWrap}>
@@ -397,6 +491,16 @@ export default function BrowseScreen() {
             <View style={styles.cartBannerRight}>
               <Text style={styles.cartBannerAction}>View Cart</Text>
               <Ionicons name="arrow-forward" size={16} color="#fff" style={{ marginLeft: 4 }} />
+            </View>
+          </TouchableOpacity>
+          <View style={styles.cartBannerDivider} />
+          <TouchableOpacity
+            style={styles.cartBannerDelete}
+            onPress={handleClearCartPress}
+            activeOpacity={0.7}
+          >
+            <View style={styles.cartDeleteIconWrap}>
+              <Ionicons name="trash-outline" size={16} color={theme.colors.error} />
             </View>
           </TouchableOpacity>
         </View>
@@ -633,16 +737,41 @@ const styles = StyleSheet.create({
     left: 14,
     right: 14,
     zIndex: 99,
-  },
-  cartBanner: {
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: theme.colors.primary,
+    borderRadius: 14,
+    overflow: "hidden",
+    ...theme.shadow.md,
+  },
+  cartBannerMain: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 16,
+    paddingLeft: 16,
+    paddingRight: 12,
     paddingVertical: 12,
-    borderRadius: 14,
-    ...theme.shadow.md,
+  },
+  cartBannerDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: "rgba(255, 255, 255, 0.25)",
+  },
+  cartBannerDelete: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  cartDeleteIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(255, 255, 255, 0.95)",
+    justifyContent: "center",
+    alignItems: "center",
+    ...theme.shadow.xs,
   },
   cartBannerLeft: {
     flexDirection: "row",
@@ -696,5 +825,51 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 13,
     fontWeight: "800",
+  },
+  cardSoldOut: {
+    opacity: 0.8,
+    backgroundColor: "#fafafa",
+  },
+  soldOutOverlay: {
+    position: "absolute",
+    top: 0, left: 0, right: 0, bottom: 0,
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 20,
+  },
+  soldOutOverlayText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 1.5,
+    backgroundColor: "rgba(239, 68, 68, 0.9)",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+  },
+  soldOutBtn: {
+    backgroundColor: theme.colors.borderLight,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  soldOutBtnText: {
+    color: theme.colors.textMuted,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  heartBtn: {
+    position: "absolute",
+    top: 7,
+    right: 7,
+    backgroundColor: "rgba(255, 255, 255, 0.9)",
+    borderRadius: 14,
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 30,
+    ...theme.shadow.xs,
   },
 });

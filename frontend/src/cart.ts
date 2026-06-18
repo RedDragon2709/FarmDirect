@@ -35,8 +35,9 @@ export async function getCart(): Promise<CartItem[]> {
   }
 }
 
-export async function addToCart(product: any, quantity: number): Promise<CartItem[]> {
+export async function addToCart(product: any, quantity: number, forceClear: boolean = false): Promise<CartItem[]> {
   const cart = await getCart();
+
   const existing = cart.find((item) => item.product_id === product.id);
 
   if (existing) {

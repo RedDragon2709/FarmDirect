@@ -94,6 +94,7 @@ class OrderRow(Base):
     payment_status: Mapped[str] = mapped_column(String(20), default="pending")
     transaction_id: Mapped[str] = mapped_column(String(100), default="")
     created_at: Mapped[str]    = mapped_column(String(32))
+    dispatched_at: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
 
 
 class ReviewRow(Base):
@@ -147,6 +148,10 @@ app.add_middleware(
 async def startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        try:
+            await conn.execute(sa.text("ALTER TABLE orders ADD COLUMN dispatched_at TEXT"))
+        except Exception:
+            pass
 
 
 async def get_db():
@@ -297,6 +302,7 @@ def order_to_dict(o: OrderRow) -> dict:
         "payment_status": o.payment_status,
         "transaction_id": o.transaction_id,
         "created_at": o.created_at,
+        "dispatched_at": o.dispatched_at,
     }
 
 def review_to_dict(r: ReviewRow) -> dict:
@@ -577,11 +583,31 @@ async def create_order(
     return order_to_dict(order)
 
 
+async def auto_advance_orders(sql: AsyncSession):
+    result = await sql.execute(select(OrderRow).where(OrderRow.status == "dispatched"))
+    orders = result.scalars().all()
+    updated = False
+    for o in orders:
+        if o.dispatched_at:
+            try:
+                dispatched_time = datetime.fromisoformat(o.dispatched_at)
+                if datetime.utcnow() - dispatched_time >= timedelta(minutes=5):
+                    o.status = "delivered"
+                    if o.payment_method == "COD":
+                        o.payment_status = "paid"
+                    updated = True
+            except Exception:
+                pass
+    if updated:
+        await sql.commit()
+
+
 @app.get("/api/orders/farmer")
 async def farmer_orders(
     current_user: UserRow = Depends(get_current_user),
     sql: AsyncSession = Depends(get_db)
 ):
+    await auto_advance_orders(sql)
     result = await sql.execute(
         select(OrderRow)
         .where(OrderRow.farmer_id == current_user.id)
@@ -595,6 +621,7 @@ async def consumer_orders(
     current_user: UserRow = Depends(get_current_user),
     sql: AsyncSession = Depends(get_db)
 ):
+    await auto_advance_orders(sql)
     result = await sql.execute(
         select(OrderRow)
         .where(OrderRow.consumer_id == current_user.id)
@@ -614,8 +641,19 @@ async def update_order_status(
     order = result.scalar_one_or_none()
     if not order:
         raise HTTPException(status_code=404, detail="Order not found")
-    if order.farmer_id != current_user.id:
+
+    is_farmer = order.farmer_id == current_user.id
+    is_consumer = order.consumer_id == current_user.id
+
+    if not is_farmer and not is_consumer:
         raise HTTPException(status_code=403, detail="Not authorized")
+
+    # Consumers can only cancel their own placed orders
+    if is_consumer and not is_farmer:
+        if body.status != "cancelled":
+            raise HTTPException(status_code=403, detail="Consumers can only cancel orders")
+        if order.status != "placed":
+            raise HTTPException(status_code=403, detail="Orders can only be cancelled before the farmer confirms them")
 
     valid_transitions = {
         "placed":     ["confirmed", "cancelled"],
@@ -632,8 +670,19 @@ async def update_order_status(
         )
 
     order.status = body.status
+
+    if body.status == "dispatched":
+        order.dispatched_at = now_str()
+
     if body.status == "delivered" and order.payment_method == "COD":
         order.payment_status = "paid"
+
+    # ── Restore stock on cancellation ──────────────────────────────────────────
+    if body.status == "cancelled":
+        prod_result = await sql.execute(select(ProductRow).where(ProductRow.id == order.product_id))
+        product = prod_result.scalar_one_or_none()
+        if product:
+            product.stock += order.quantity
 
     await sql.commit()
     await sql.refresh(order)

@@ -109,6 +109,9 @@ export const api = {
   updateOrderStatus: (id: string, status: string) =>
     request("PATCH", `/api/orders/${id}/status`, { status }),
 
+  cancelOrder: (id: string) =>
+    request("PATCH", `/api/orders/${id}/status`, { status: "cancelled" }),
+
   // ── Earnings ───────────────────────────────────────────────────────────────
   earningsSummary: () => request("GET", "/api/earnings/summary"),
 

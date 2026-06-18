@@ -176,7 +176,7 @@ export default function ProfileScreen() {
         text: "Sign Out", style: "destructive",
         onPress: async () => {
           try { await api.logout(); } catch {}
-          await AsyncStorage.multiRemove(["token", "user", "delivery_address"]);
+          await AsyncStorage.multiRemove(["token", "user", "delivery_address", "address_prompted"]);
           router.replace("/");
         },
       },
@@ -215,22 +215,6 @@ export default function ProfileScreen() {
       case "about":
         setAboutOpen(true);
         break;
-      case "privacy":
-        Linking.openURL("https://farmdirect.in/privacy").catch(() => {
-          Alert.alert(
-            "Privacy Policy",
-            "Your data is stored securely and never shared with third parties without consent. Visit farmdirect.in/privacy for full policy."
-          );
-        });
-        break;
-      case "terms":
-        Linking.openURL("https://farmdirect.in/terms").catch(() => {
-          Alert.alert(
-            "Terms of Service",
-            "By using FarmDirect you agree to our terms. Farmers are responsible for product quality. Visit farmdirect.in/terms for full details."
-          );
-        });
-        break;
     }
   };
 
@@ -263,8 +247,6 @@ export default function ProfileScreen() {
       title: "About",
       items: [
         { icon: "leaf-outline",        label: "About FarmDirect",    color: "#0A7A40", action: "about" },
-        { icon: "document-text-outline", label: "Privacy Policy",   color: "#6B7280", action: "privacy" },
-        { icon: "shield-outline",      label: "Terms of Service",    color: "#6B7280", action: "terms" },
       ],
     },
   ];
@@ -456,7 +438,7 @@ export default function ProfileScreen() {
             <Text style={styles.aboutSectionTitle}>Impact</Text>
             <View style={styles.aboutStatsRow}>
               {[
-                { val: "500+", label: "Farmers" },
+                { val: "2+", label: "Farmers" },
                 { val: "50K+", label: "Orders" },
                 { val: "12hrs", label: "Freshness" },
               ].map((s) => (

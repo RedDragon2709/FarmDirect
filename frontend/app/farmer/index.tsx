@@ -44,6 +44,7 @@ export default function FarmerDashboardScreen() {
 
   // Onboarding modal state
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const [farmName, setFarmName] = useState("");
   const [farmLocation, setFarmLocation] = useState("");
   const [farmType, setFarmType] = useState("");
@@ -78,6 +79,19 @@ export default function FarmerDashboardScreen() {
   }, []));
 
   const checkOnboarding = async () => {
+    try {
+      const isEditingProfile = await AsyncStorage.getItem("edit_farm_profile");
+      if (isEditingProfile === "true") {
+        await AsyncStorage.removeItem("edit_farm_profile");
+        await AsyncStorage.removeItem("farmer_onboarded");
+        setIsEditing(true);
+        setShowOnboarding(true);
+        return;
+      }
+    } catch {}
+
+    setIsEditing(false);
+
     try {
       const user: any = await api.me();
       if (user && user.farm_name) {
@@ -129,7 +143,11 @@ export default function FarmerDashboardScreen() {
       ]);
 
       setShowOnboarding(false);
-      Alert.alert("Welcome aboard!", `Your farm "${farmName}" is now registered. Start listing your produce!`);
+      if (isEditing) {
+        Alert.alert("Success", "Farm details updated successfully!");
+      } else {
+        Alert.alert("Welcome aboard!", `Your farm "${farmName}" is now registered. Start listing your produce!`);
+      }
     } catch (e: any) {
       Alert.alert("Error", e.message || "Failed to save farm details.");
     } finally {
@@ -329,12 +347,25 @@ export default function FarmerDashboardScreen() {
         <View style={styles.onboardOverlay}>
           <View style={styles.onboardSheet}>
             <View style={styles.onboardHandle} />
+            {isEditing && (
+              <TouchableOpacity
+                onPress={() => setShowOnboarding(false)}
+                style={styles.onboardCloseBtn}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="close" size={20} color={theme.colors.textPrimary} />
+              </TouchableOpacity>
+            )}
             <View style={styles.onboardIconRow}>
               <View style={styles.onboardIcon}><ThemedEmoji name="welcome" size={32} /></View>
             </View>
-            <Text style={styles.onboardTitle}>Welcome, Farmer!</Text>
+            <Text style={styles.onboardTitle}>
+              {isEditing ? "Update Farm Details" : "Welcome, Farmer!"}
+            </Text>
             <Text style={styles.onboardSub}>
-              Tell us a bit about your farm so buyers can discover and trust you.
+              {isEditing
+                ? "Modify your farm information shown to buyers."
+                : "Tell us a bit about your farm so buyers can discover and trust you."}
             </Text>
 
             <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 380 }}>
@@ -388,7 +419,7 @@ export default function FarmerDashboardScreen() {
               activeOpacity={0.88}
             >
               <Text style={styles.onboardBtnText}>
-                {onboardingLoading ? "Saving…" : "Register My Farm"}
+                {onboardingLoading ? "Saving…" : (isEditing ? "Save Changes" : "Register My Farm")}
               </Text>
             </TouchableOpacity>
           </View>
@@ -451,7 +482,8 @@ const styles = StyleSheet.create({
 
   // Onboarding Modal
   onboardOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end" },
-  onboardSheet: { backgroundColor: "#fff", borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 24, paddingBottom: 40, maxHeight: "90%", ...theme.shadow.lg },
+  onboardSheet: { backgroundColor: "#fff", borderTopLeftRadius: 26, borderTopRightRadius: 26, padding: 24, paddingBottom: 40, maxHeight: "90%", ...theme.shadow.lg, position: "relative" },
+  onboardCloseBtn: { position: "absolute", top: 20, right: 20, width: 32, height: 32, borderRadius: 16, backgroundColor: theme.colors.surfaceAlt, alignItems: "center", justifyContent: "center", zIndex: 10 },
   onboardHandle: { width: 40, height: 4, borderRadius: 2, backgroundColor: theme.colors.border, alignSelf: "center", marginBottom: 16 },
   onboardIconRow: { alignItems: "center", marginBottom: 10 },
   onboardIcon: { width: 68, height: 68, borderRadius: 34, backgroundColor: theme.colors.primarySoft, alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor: theme.colors.primaryLight + "30" },

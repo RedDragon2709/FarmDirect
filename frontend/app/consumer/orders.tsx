@@ -6,6 +6,7 @@ import {
 import { useFocusEffect, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { api } from "../../src/api";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { theme } from "../../src/theme";
 import { ThemedEmoji } from "../../src/components/ThemedEmoji";
 import { formatAddress, parseAddress } from "../../src/utils/address";
@@ -110,6 +111,7 @@ export default function ConsumerOrdersScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   // Reviews
   const [reviewModal, setReviewModal] = useState<{ order: any } | null>(null);
@@ -169,6 +171,42 @@ export default function ConsumerOrdersScreen() {
     setReviewRating(5);
     setReviewComment("");
     setReviewModal({ order });
+  };
+
+  const handleCancelOrder = (groupedOrder: any) => {
+    Alert.alert(
+      "Cancel Order",
+      "Are you sure you want to cancel this order? This action cannot be undone.",
+      [
+        { text: "Keep Order", style: "cancel" },
+        {
+          text: "Yes, Cancel",
+          style: "destructive",
+          onPress: async () => {
+            setCancellingId(groupedOrder.id);
+            try {
+              // Cancel all individual order items in this group
+              await Promise.all(
+                groupedOrder.items.map((item: any) => api.cancelOrder(item.id))
+              );
+              // Update local state
+              setOrders(prev =>
+                prev.map(o =>
+                  groupedOrder.items.some((gi: any) => gi.id === o.id)
+                    ? { ...o, status: "cancelled" }
+                    : o
+                )
+              );
+              Alert.alert("Order Cancelled", "Your order has been cancelled and stock has been restored.");
+            } catch (e: any) {
+              Alert.alert("Error", e.message || "Could not cancel order. It may have already been confirmed by the farmer.");
+            } finally {
+              setCancellingId(null);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const getStepState = (orderStatus: string, stepKey: string): "completed" | "active" | "pending" => {
@@ -406,6 +444,25 @@ export default function ConsumerOrdersScreen() {
                       <Text style={styles.txnId}>Txn: {groupedOrder.transaction_id}</Text>
                     )}
                   </View>
+
+                  {/* Cancel button — only for placed orders */}
+                  {statusVal === "placed" && (
+                    <TouchableOpacity
+                      style={styles.cancelOrderBtn}
+                      onPress={() => handleCancelOrder(groupedOrder)}
+                      activeOpacity={0.8}
+                      disabled={cancellingId === groupedOrder.id}
+                    >
+                      {cancellingId === groupedOrder.id ? (
+                        <ActivityIndicator size="small" color={theme.colors.error} />
+                      ) : (
+                        <>
+                          <Ionicons name="close-circle-outline" size={16} color={theme.colors.error} />
+                          <Text style={styles.cancelOrderBtnText}> Cancel Order</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  )}
                 </View>
               )}
             </View>
@@ -797,6 +854,23 @@ const styles = StyleSheet.create({
     color: theme.colors.success,
     fontSize: 11,
     fontWeight: "700",
+  },
+  cancelOrderBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 12,
+    borderWidth: 1.5,
+    borderColor: theme.colors.error,
+    borderRadius: 10,
+    paddingVertical: 10,
+    backgroundColor: theme.colors.errorSoft,
+    minHeight: 40,
+  },
+  cancelOrderBtnText: {
+    color: theme.colors.error,
+    fontSize: 13,
+    fontWeight: "800",
   },
 });
 

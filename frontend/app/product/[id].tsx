@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Alert, TextInput, ActivityIndicator, Image, StatusBar
+  Alert, TextInput, ActivityIndicator, Image, StatusBar, Modal
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
@@ -40,10 +40,131 @@ export default function ProductDetailScreen() {
 
   // Reviews state
   const [reviews, setReviews] = useState<any[]>([]);
+  const [eligibleOrder, setEligibleOrder] = useState<any | null>(null);
+  const [reviewModal, setReviewModal] = useState(false);
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewComment, setReviewComment] = useState("");
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const [checkingEligibility, setCheckingEligibility] = useState(false);
 
   // Cart banner state
   const [cartCount, setCartCount] = useState(0);
   const [cartTotal, setCartTotal] = useState(0);
+
+  const checkReviewEligibility = async () => {
+    try {
+      const token = await AsyncStorage.getItem("token");
+      if (!token) return;
+      const userStr = await AsyncStorage.getItem("user");
+      if (!userStr) return;
+      const user = JSON.parse(userStr);
+      if (user.user_type !== "consumer") return;
+
+      const [ordersData, myReviewsData] = await Promise.all([
+        api.consumerOrders(),
+        api.getMyReviews()
+      ]);
+
+      const match = ordersData.find((o: any) => 
+        o.product_id === id && 
+        o.status === "delivered" && 
+        !myReviewsData.some((r: any) => r.order_id === o.id)
+      );
+
+      setEligibleOrder(match || null);
+    } catch (e) {
+      console.log("Error checking review eligibility:", e);
+    }
+  };
+
+  const handleWriteReviewPress = async () => {
+    try {
+      const token = await AsyncStorage.getItem("token");
+      if (!token) {
+        Alert.alert("Authentication Required", "Please log in to write a review.");
+        return;
+      }
+      const userStr = await AsyncStorage.getItem("user");
+      if (!userStr) {
+        Alert.alert("Authentication Required", "Please log in to write a review.");
+        return;
+      }
+      const user = JSON.parse(userStr);
+      if (user.user_type !== "consumer") {
+        Alert.alert("Not Eligible", "Only consumers can write reviews for products.");
+        return;
+      }
+
+      setCheckingEligibility(true);
+      const [ordersData, myReviewsData] = await Promise.all([
+        api.consumerOrders(),
+        api.getMyReviews()
+      ]);
+      setCheckingEligibility(false);
+
+      const productOrders = ordersData.filter((o: any) => o.product_id === id);
+      if (productOrders.length === 0) {
+        Alert.alert(
+          "Purchase Required",
+          "You can only review products you have purchased and received from FarmDirect."
+        );
+        return;
+      }
+
+      const deliveredOrders = productOrders.filter((o: any) => o.status === "delivered");
+      if (deliveredOrders.length === 0) {
+        Alert.alert(
+          "Order Not Delivered",
+          "You can only review products after they have been delivered."
+        );
+        return;
+      }
+
+      const unreviewedOrder = deliveredOrders.find((o: any) => 
+        !myReviewsData.some((r: any) => r.order_id === o.id)
+      );
+
+      if (!unreviewedOrder) {
+        Alert.alert(
+          "Already Reviewed",
+          "You have already reviewed this product for all your purchases."
+        );
+        return;
+      }
+
+      setEligibleOrder(unreviewedOrder);
+      setReviewModal(true);
+    } catch (e) {
+      setCheckingEligibility(false);
+      Alert.alert("Error", "Could not verify review eligibility. Please try again.");
+    }
+  };
+
+  const handleSubmitReview = async () => {
+    if (!eligibleOrder) return;
+    setSubmittingReview(true);
+    try {
+      const res: any = await api.postReview({
+        order_id: eligibleOrder.id,
+        product_id: eligibleOrder.product_id,
+        rating: reviewRating,
+        comment: reviewComment.trim(),
+      });
+      Alert.alert("Review Submitted!", "Thank you for your feedback.");
+      setReviewModal(false);
+      setReviewRating(5);
+      setReviewComment("");
+      setEligibleOrder(null);
+      
+      // Refresh reviews list
+      const revs = await api.getProductReviews(id);
+      setReviews(revs || []);
+    } catch (e: any) {
+      Alert.alert("Error", e.message || "Could not submit review.");
+    } finally {
+      setSubmittingReview(false);
+    }
+  };
 
   const refreshCartState = async () => {
     const { getCart } = await import("../../src/cart");
@@ -95,6 +216,7 @@ export default function ProductDetailScreen() {
   useEffect(() => {
     if (!id) return;
     setLoading(true);
+    checkReviewEligibility();
     Promise.all([
       api.getProduct(id),
       api.getProductReviews(id)
@@ -135,6 +257,7 @@ export default function ProductDetailScreen() {
     setPaymentVisible(false);
     setOrdering(true);
     
+    const trimmedAddress = address.trim();
     const qty = parseInt(quantity);
     try {
       const sharedTxnId = transactionId || `COD-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
@@ -190,7 +313,7 @@ export default function ProductDetailScreen() {
           { text: "View Cart", onPress: () => router.push("/consumer/cart") }
         ]
       );
-    } catch {
+    } catch (e: any) {
       Alert.alert("Error", "Could not add to cart.");
     }
   };
@@ -322,7 +445,42 @@ export default function ProductDetailScreen() {
 
           {/* Reviews & Ratings Section */}
           <View style={styles.reviewsSection}>
-            <Text style={styles.reviewsTitle}>Customer Reviews ({reviews.length})</Text>
+            <View style={styles.reviewsHeaderRow}>
+              <Text style={styles.reviewsTitle}>Customer Reviews ({reviews.length})</Text>
+              <TouchableOpacity
+                style={[styles.writeReviewBtn, checkingEligibility && { opacity: 0.6 }]}
+                onPress={handleWriteReviewPress}
+                activeOpacity={0.8}
+                disabled={checkingEligibility}
+              >
+                {checkingEligibility ? (
+                  <ActivityIndicator size="small" color={theme.colors.primary} />
+                ) : (
+                  <>
+                    <Ionicons name="create-outline" size={14} color={theme.colors.primary} />
+                    <Text style={styles.writeReviewBtnText}> Write a Review</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+            {eligibleOrder && (
+              <View style={styles.eligiblePromptCard}>
+                <View style={styles.eligiblePromptHeader}>
+                  <Ionicons name="sparkles" size={14} color="#B45309" />
+                  <Text style={styles.eligiblePromptTitle}> Share Your Feedback</Text>
+                </View>
+                <Text style={styles.eligiblePromptText}>
+                  Your order for this item has been delivered! Share your feedback with other buyers.
+                </Text>
+                <TouchableOpacity
+                  style={styles.eligiblePromptBtn}
+                  onPress={() => setReviewModal(true)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.eligiblePromptBtnText}>Write a Review</Text>
+                </TouchableOpacity>
+              </View>
+            )}
             {reviews.length === 0 ? (
               <View style={styles.reviewsEmpty}>
                 <Ionicons name="chatbox-outline" size={24} color={theme.colors.textMuted} />
@@ -491,7 +649,7 @@ export default function ProductDetailScreen() {
             <View style={styles.btnRow}>
               <TouchableOpacity
                 style={styles.cartBtn}
-                onPress={handleAddToCart}
+                onPress={() => handleAddToCart()}
                 activeOpacity={0.8}
               >
                 <Ionicons name="cart-outline" size={18} color={theme.colors.primary} />
@@ -569,6 +727,68 @@ export default function ProductDetailScreen() {
         }}
         initialAddressString={address}
       />
+
+      {/* ── Review Modal ──────────────────────────────────────────────────────── */}
+      <Modal visible={reviewModal} animationType="slide" presentationStyle="pageSheet">
+        <View style={styles.reviewModalHeader}>
+          <Text style={styles.reviewModalTitle}>Write a Review</Text>
+          <TouchableOpacity
+            onPress={() => setReviewModal(false)}
+            style={styles.reviewModalClose}
+          >
+            <Ionicons name="close" size={20} color={theme.colors.textPrimary} />
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView contentContainerStyle={styles.reviewModalBody} keyboardShouldPersistTaps="handled">
+          {product && (
+            <View>
+              <Text style={styles.reviewProductName}>{product.name}</Text>
+              <Text style={styles.reviewSubLabel}>How would you rate this product?</Text>
+              
+              <View style={styles.starRow}>
+                {[1, 2, 3, 4, 5].map((s) => (
+                  <TouchableOpacity key={s} onPress={() => setReviewRating(s)} activeOpacity={0.7}>
+                    <Ionicons
+                      name={s <= reviewRating ? "star" : "star-outline"}
+                      size={36}
+                      color={s <= reviewRating ? "#F59E0B" : theme.colors.border}
+                      style={{ marginRight: 8 }}
+                    />
+                  </TouchableOpacity>
+                ))}
+              </View>
+              
+              <Text style={styles.ratingLabel}>
+                {["Terrible", "Poor", "Okay", "Good", "Excellent!"][reviewRating - 1]}
+              </Text>
+              
+              <Text style={styles.reviewInputLabel}>Share your experience (optional)</Text>
+              <TextInput
+                style={styles.reviewInput}
+                multiline
+                numberOfLines={4}
+                value={reviewComment}
+                onChangeText={setReviewComment}
+                placeholder="How was the freshness, taste, and packaging?"
+                placeholderTextColor={theme.colors.textMuted}
+              />
+              
+              <TouchableOpacity
+                style={[styles.submitReviewBtn, submittingReview && { opacity: 0.8 }]}
+                onPress={handleSubmitReview}
+                disabled={submittingReview}
+              >
+                {submittingReview ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.submitReviewBtnText}>Submit Review</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
+        </ScrollView>
+      </Modal>
     </View>
   );
 }
@@ -1077,6 +1297,149 @@ const styles = StyleSheet.create({
   cartBannerAction: {
     color: "#fff",
     fontSize: 13,
+    fontWeight: "800",
+  },
+  reviewsHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  writeReviewBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: theme.colors.primarySoft,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+  },
+  writeReviewBtnText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: theme.colors.primary,
+  },
+  reviewModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.borderLight,
+    backgroundColor: "#fff",
+  },
+  reviewModalTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: theme.colors.textPrimary,
+  },
+  reviewModalClose: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: theme.colors.surfaceAlt,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  reviewModalBody: {
+    padding: 20,
+    paddingBottom: 40,
+  },
+  reviewProductName: {
+    fontSize: 18,
+    fontWeight: "900",
+    color: theme.colors.textPrimary,
+    marginBottom: 6,
+    textAlign: "center",
+  },
+  reviewSubLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: theme.colors.textSecondary,
+    marginBottom: 12,
+    textAlign: "center",
+  },
+  starRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    marginBottom: 10,
+  },
+  ratingLabel: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#F59E0B",
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  reviewInputLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: theme.colors.textSecondary,
+    marginBottom: 6,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  reviewInput: {
+    borderWidth: 1.5,
+    borderColor: theme.colors.border,
+    borderRadius: 14,
+    padding: 14,
+    fontSize: 14,
+    color: theme.colors.textPrimary,
+    backgroundColor: "#fff",
+    height: 110,
+    marginBottom: 20,
+  },
+  submitReviewBtn: {
+    backgroundColor: theme.colors.primary,
+    borderRadius: 14,
+    height: 52,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    ...theme.shadow.sm,
+  },
+  submitReviewBtnText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  eligiblePromptCard: {
+    backgroundColor: "#FFFBEB",
+    borderWidth: 1,
+    borderColor: "#FCD34D",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+  },
+  eligiblePromptHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  eligiblePromptTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#B45309",
+  },
+  eligiblePromptText: {
+    fontSize: 12,
+    color: "#78350F",
+    lineHeight: 16,
+    marginBottom: 10,
+  },
+  eligiblePromptBtn: {
+    backgroundColor: "#F59E0B",
+    borderRadius: 8,
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  eligiblePromptBtnText: {
+    color: "#fff",
+    fontSize: 12,
     fontWeight: "800",
   },
 });

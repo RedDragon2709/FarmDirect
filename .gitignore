@@ -86,3 +86,7 @@ Thumbs.db
 
 # SQLite databases
 *.db
+
+# ML large files (CSVs + trained model binaries)
+ml_service/data/
+ml_service/models/*.pkl

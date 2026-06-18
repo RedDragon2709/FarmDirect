@@ -18,7 +18,10 @@
       "adaptiveIcon": {
         "backgroundColor": "#2E7D32"
       },
-      "package": "com.farmdirect.app"
+      "package": "com.farmdirect.app",
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "bundler": "metro"
@@ -28,6 +31,12 @@
       "expo-image-picker",
       "expo-asset"
     ],
-    "scheme": "farmdirect"
+    "scheme": "farmdirect",
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "4bd776e8-441d-4c9f-b181-7dfb4c1bcd0a"
+      }
+    }
   }
 }
