@@ -87,6 +87,5 @@ Thumbs.db
 # SQLite databases
 *.db
 
-# ML large files (CSVs + trained model binaries)
+# ML large training data (CSVs — ~112 MB, not needed to run the service)
 ml_service/data/
-ml_service/models/*.pkl

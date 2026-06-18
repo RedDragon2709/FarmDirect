@@ -1,23 +1,37 @@
-# Start backend (now includes ML routes)
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "cd 'C:\Users\harsh\Downloads\farmdirect\farmdirect\backend'; python -m uvicorn server:app --reload --host 0.0.0.0 --port 8000"
+# FarmDirect — Dev Startup Script
+# Starts all 3 services: Backend API, ML Pricing Service, and prompts for Frontend
 
-# Start ngrok
-Start-Process powershell -ArgumentList "-NoExit", "-Command", "C:\ngrok\ngrok.exe start backend"
+$root = Split-Path -Parent $MyInvocation.MyCommand.Definition
 
-Write-Host "Waiting for ngrok to start..." -ForegroundColor Yellow
-Start-Sleep -Seconds 4
-
-# Fetch ngrok URL
-$tunnels = Invoke-RestMethod -Uri "http://localhost:4040/api/tunnels"
-$backendUrl = ($tunnels.tunnels | Where-Object { $_.config.addr -like "*8000*" }).public_url
-
-# Update api.ts
-$api = Get-Content "frontend\src\api.ts" -Raw
-$api = $api -replace 'const BASE_URL = ".*"', "const BASE_URL = `"$backendUrl`""
-$api = $api -replace 'const ML_BASE_URL = ".*"', "const ML_BASE_URL = `"$backendUrl`""
-Set-Content "frontend\src\api.ts" $api
-
-Write-Host "Backend: $backendUrl" -ForegroundColor Green
-Write-Host "api.ts updated!" -ForegroundColor Green
 Write-Host ""
-Write-Host "Now run: cd frontend && npx expo start --clear" -ForegroundColor Cyan
+Write-Host "=============================" -ForegroundColor Green
+Write-Host "  FarmDirect Dev Environment " -ForegroundColor Green
+Write-Host "=============================" -ForegroundColor Green
+Write-Host ""
+
+# 1. Start Backend API (port 8000)
+Write-Host "[1/3] Starting Backend API on port 8000..." -ForegroundColor Cyan
+Start-Process powershell -ArgumentList "-NoExit", "-Command", `
+    "Set-Location '$root\backend'; python -m uvicorn server:app --reload --host 0.0.0.0 --port 8000"
+
+Start-Sleep -Seconds 2
+
+# 2. Start ML Pricing Service (port 8001)
+Write-Host "[2/3] Starting ML Pricing Service on port 8001..." -ForegroundColor Cyan
+Start-Process powershell -ArgumentList "-NoExit", "-Command", `
+    "Set-Location '$root\ml_service'; python run.py"
+
+Start-Sleep -Seconds 2
+
+# 3. Start Frontend
+Write-Host "[3/3] Starting Frontend (Expo)..." -ForegroundColor Cyan
+Start-Process powershell -ArgumentList "-NoExit", "-Command", `
+    "Set-Location '$root\frontend'; npx expo start --clear"
+
+Write-Host ""
+Write-Host "All services launching in separate windows." -ForegroundColor Green
+Write-Host ""
+Write-Host "  Backend API  -> http://localhost:8000" -ForegroundColor White
+Write-Host "  ML Service   -> http://localhost:8001" -ForegroundColor White
+Write-Host "  Frontend     -> Scan QR in the Expo window" -ForegroundColor White
+Write-Host ""
